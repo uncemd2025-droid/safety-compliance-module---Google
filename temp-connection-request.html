@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Temporary Electrical Connection Request</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/boxicons@2.1.4/css/boxicons.min.css">
+<style>
+  *{font-family:'Public Sans',-apple-system,'Segoe UI',sans-serif;}
+  body{background:linear-gradient(160deg,#eef2f7 0%,#e2e8f0 55%,#eef2f7 100%); min-height:100vh;}
+  .footer-note{color:#94a3b8; font-size:.75rem; text-align:center; margin-top:1.75rem;}
+  .card{background:#fff; border-radius:1rem; box-shadow:0 20px 45px -12px rgba(15,23,42,.45);}
+  .field-label{font-size:.8rem; font-weight:600; color:#334155; margin-bottom:.25rem; display:block;}
+  .field-input{width:100%; border:1px solid #cbd5e1; border-radius:.5rem; padding:.55rem .75rem; font-size:.9rem; color:#1e293b; outline:none; transition:border-color .15s, box-shadow .15s;}
+  .field-input:focus{border-color:#2563eb; box-shadow:0 0 0 3px rgba(37,99,235,.15);}
+  .chip{display:inline-flex; align-items:center; gap:.4rem; border:1px solid #cbd5e1; border-radius:999px; padding:.4rem .8rem; font-size:.82rem; cursor:pointer; user-select:none; transition:all .15s;}
+  .chip.checked{background:#1e293b; color:#fff; border-color:#1e293b;}
+  .section-title{font-size:.72rem; font-weight:800; letter-spacing:.06em; text-transform:uppercase; color:#64748b; margin-bottom:.6rem;}
+  .btn-submit{background:#1e293b; color:#fff; font-weight:700; border-radius:.6rem; padding:.85rem 1.5rem; transition:background .15s;}
+  .btn-submit:hover{background:#0f172a;}
+  .btn-submit:disabled{opacity:.6; cursor:not-allowed;}
+  /* honeypot: present in the DOM for bots, invisible/unreachable for humans */
+  .hp{position:absolute; left:-9999px; top:-9999px; opacity:0; height:0; width:0; overflow:hidden;}
+</style>
+</head>
+<body class="flex items-center justify-center px-4 py-10">
+
+<div class="w-full max-w-2xl">
+  <div class="text-center mb-6">
+    <div class="flex justify-center mb-3">
+      <svg width="88" height="88" viewBox="0 0 88 88" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="44" cy="44" r="44" fill="#1e293b"/>
+        <!-- cable from the left -->
+        <path d="M10 44 H30" stroke="#94a3b8" stroke-width="4" stroke-linecap="round"/>
+        <!-- plug body -->
+        <rect x="28" y="34" width="16" height="20" rx="3" fill="#e2e8f0"/>
+        <rect x="32" y="30" width="3.5" height="8" rx="1.5" fill="#e2e8f0"/>
+        <rect x="40.5" y="30" width="3.5" height="8" rx="1.5" fill="#e2e8f0"/>
+        <!-- socket body -->
+        <rect x="46" y="30" width="20" height="28" rx="4" fill="#334155"/>
+        <circle cx="53" cy="40" r="2.4" fill="#facc15"/>
+        <circle cx="61" cy="40" r="2.4" fill="#facc15"/>
+        <rect x="54.5" y="47" width="7" height="3" rx="1.5" fill="#facc15"/>
+        <!-- spark accents -->
+        <path d="M64 22 L60 30 L64.5 30 L61 38" stroke="#facc15" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+        <path d="M22 58 L26 66" stroke="#facc15" stroke-width="2.4" stroke-linecap="round" opacity=".7"/>
+        <path d="M18 62 L22 68" stroke="#facc15" stroke-width="2" stroke-linecap="round" opacity=".5"/>
+      </svg>
+    </div>
+    <h1 class="text-slate-800 text-2xl font-extrabold">Temporary Electrical Connection Request</h1>
+    <p class="text-slate-500 text-sm mt-1">Fill this form to request a temporary power connection. Your request goes straight to the safety team for review.</p>
+  </div>
+
+  <form id="tcForm" class="card p-6 sm:p-8 space-y-6" autocomplete="off">
+
+    <!-- honeypot field: real users never see or fill this -->
+    <div class="hp" aria-hidden="true">
+      <label>Company Website</label>
+      <input type="text" name="companyWebsite" id="companyWebsite" tabindex="-1" autocomplete="off">
+    </div>
+
+    <div>
+      <div class="section-title">Connection Details</div>
+      <div class="grid sm:grid-cols-2 gap-4">
+        <div class="sm:col-span-2">
+          <label class="field-label">Location where supply is required *</label>
+          <input required id="location" class="field-input" placeholder="e.g. Boiler Bay 3, near Column B12">
+        </div>
+        <div>
+          <label class="field-label">Supply type *</label>
+          <select required id="supplyType" class="field-input">
+            <option value="">Select…</option>
+            <option>1 Phase</option>
+            <option>3 Phase</option>
+          </select>
+        </div>
+        <div></div>
+        <div>
+          <label class="field-label">Period from *</label>
+          <input required type="date" id="periodFrom" class="field-input">
+        </div>
+        <div>
+          <label class="field-label">Period to *</label>
+          <input required type="date" id="periodTo" class="field-input">
+          <p class="text-xs text-slate-400 mt-1">Max 3 months from the start date.</p>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="section-title">Purpose of Connection *</div>
+      <div id="purposeChips" class="flex flex-wrap gap-2"></div>
+      <input id="purposeOther" class="field-input mt-3 hidden" placeholder="Please specify other purpose">
+    </div>
+
+    <div>
+      <label class="field-label">Load / equipment requirement (optional)</label>
+      <textarea id="requirement" class="field-input" rows="2" placeholder="e.g. 2x 15A single-phase for welding sets"></textarea>
+    </div>
+
+    <div>
+      <div class="section-title">Applicant Details</div>
+      <div class="grid sm:grid-cols-2 gap-4">
+        <div>
+          <label class="field-label">Name *</label>
+          <input required id="applicantName" class="field-input">
+        </div>
+        <div>
+          <label class="field-label">Designation *</label>
+          <input required id="designation" class="field-input">
+        </div>
+        <div>
+          <label class="field-label">Employee No. *</label>
+          <input required id="empNo" class="field-input">
+        </div>
+        <div>
+          <label class="field-label">Department *</label>
+          <input required id="department" class="field-input" placeholder="e.g. Mechanical Maintenance">
+        </div>
+        <div class="sm:col-span-2">
+          <label class="field-label">Forwarded / recommended by *</label>
+          <input required id="forwarding" class="field-input" placeholder="Name of shift-in-charge / section head">
+        </div>
+      </div>
+    </div>
+
+    <label class="flex items-start gap-2 text-sm text-slate-600">
+      <input required type="checkbox" id="declared" class="mt-1">
+      <span>I declare that the above information is correct and the connection will be used strictly for the stated purpose, and that I will get it disconnected once the work is complete.</span>
+    </label>
+
+    <div id="formMsg" class="hidden text-sm rounded-lg px-3 py-2"></div>
+
+    <button type="submit" id="submitBtn" class="btn-submit w-full flex items-center justify-center gap-2">
+      <i class='bx bx-send'></i> <span id="submitLabel">Submit Request</span>
+    </button>
+    <p class="text-xs text-center text-slate-400">This request is sent directly to the safety dashboard for review — no login required to submit.</p>
+  </form>
+
+  <p class="footer-note">&copy; Amit Nayak, Emp. No. 102218</p>
+</div>
+
+<script>
+// Set this to your deployed Google Apps Script Web App URL, e.g.
+// https://script.google.com/macros/s/AKfycb.../exec
+const SUBMIT_URL = 'https://REPLACE-WITH-YOUR-APPS-SCRIPT-WEB-APP-URL/exec';
+
+const PURPOSES = ['Area illumination', 'Welding', 'Pump', 'Belt jointing machine', 'SR Machine Supply', 'Other'];
+const selected = new Set();
+
+const chipsEl = document.getElementById('purposeChips');
+PURPOSES.forEach(p => {
+  const chip = document.createElement('div');
+  chip.className = 'chip';
+  chip.textContent = p;
+  chip.onclick = () => {
+    if (selected.has(p)) { selected.delete(p); chip.classList.remove('checked'); }
+    else { selected.add(p); chip.classList.add('checked'); }
+    document.getElementById('purposeOther').classList.toggle('hidden', !selected.has('Other'));
+  };
+  chipsEl.appendChild(chip);
+});
+
+// Keep "period to" capped at 3 months after "period from". We set both the
+// min and max on periodTo whenever periodFrom changes, and if a previously
+// chosen periodTo now falls outside that window, clear it so the user picks
+// again rather than silently submitting a stale/invalid date.
+const periodFromEl = document.getElementById('periodFrom');
+const periodToEl = document.getElementById('periodTo');
+
+function addMonthsClamped(dateStr, months) {
+  const d = new Date(dateStr + 'T00:00:00');
+  const targetMonth = d.getMonth() + months;
+  const result = new Date(d.getFullYear(), targetMonth, d.getDate());
+  // If the day overflowed into the following month (e.g. Jan 31 + 1mo),
+  // rolling back to the last day of the intended month keeps this a true
+  // "3 months later" cap rather than drifting forward.
+  if (result.getMonth() !== ((targetMonth % 12) + 12) % 12) {
+    result.setDate(0);
+  }
+  return result.toISOString().slice(0, 10);
+}
+
+periodFromEl.addEventListener('change', () => {
+  if (!periodFromEl.value) {
+    periodToEl.removeAttribute('min');
+    periodToEl.removeAttribute('max');
+    return;
+  }
+  const maxDate = addMonthsClamped(periodFromEl.value, 3);
+  periodToEl.min = periodFromEl.value;
+  periodToEl.max = maxDate;
+  if (periodToEl.value && (periodToEl.value < periodFromEl.value || periodToEl.value > maxDate)) {
+    periodToEl.value = '';
+  }
+});
+
+function showMsg(text, kind) {
+  const el = document.getElementById('formMsg');
+  el.textContent = text;
+  el.className = 'text-sm rounded-lg px-3 py-2 ' + (kind === 'error'
+    ? 'bg-red-50 text-red-700 border border-red-200'
+    : 'bg-emerald-50 text-emerald-700 border border-emerald-200');
+  el.classList.remove('hidden');
+}
+
+document.getElementById('tcForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const btn = document.getElementById('submitBtn');
+  const label = document.getElementById('submitLabel');
+
+  const periodFromVal = document.getElementById('periodFrom').value;
+  const periodToVal = document.getElementById('periodTo').value;
+  if (periodToVal < periodFromVal) {
+    showMsg('The "period to" date cannot be before the "period from" date.', 'error');
+    return;
+  }
+  if (periodToVal > addMonthsClamped(periodFromVal, 3)) {
+    showMsg('The connection period cannot exceed 3 months from the start date.', 'error');
+    return;
+  }
+  if (!selected.size) {
+    showMsg('Please select at least one purpose.', 'error');
+    return;
+  }
+
+  const payload = {
+    location: document.getElementById('location').value,
+    supplyType: document.getElementById('supplyType').value,
+    periodFrom: document.getElementById('periodFrom').value,
+    periodTo: document.getElementById('periodTo').value,
+    purposes: Array.from(selected),
+    purposeOther: document.getElementById('purposeOther').value,
+    requirement: document.getElementById('requirement').value,
+    applicantName: document.getElementById('applicantName').value,
+    designation: document.getElementById('designation').value,
+    empNo: document.getElementById('empNo').value,
+    department: document.getElementById('department').value,
+    forwarding: document.getElementById('forwarding').value,
+    declared: document.getElementById('declared').checked,
+    companyWebsite: document.getElementById('companyWebsite').value // honeypot, left blank by real users
+  };
+
+  btn.disabled = true;
+  label.textContent = 'Submitting…';
+
+  try {
+    // Content-Type is deliberately 'text/plain' here, not 'application/json'.
+    // Google Apps Script Web Apps don't handle the CORS "preflight" (OPTIONS)
+    // request that browsers send before a JSON POST, so a normal JSON
+    // request would fail. Sending as text/plain keeps this a browser
+    // "simple request" (no preflight), and the script parses the JSON
+    // itself from the raw body server-side.
+    const resp = await fetch(SUBMIT_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(payload)
+    });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok || !data.ok) {
+      throw new Error(data.error || ('Request failed (HTTP ' + resp.status + ')'));
+    }
+    showMsg('Request submitted successfully. Reference ID: ' + data.id + '. The safety team will review it shortly.', 'success');
+    document.getElementById('tcForm').reset();
+    selected.clear();
+    document.querySelectorAll('.chip').forEach(c => c.classList.remove('checked'));
+    document.getElementById('purposeOther').classList.add('hidden');
+  } catch (err) {
+    showMsg('Could not submit: ' + err.message, 'error');
+  } finally {
+    btn.disabled = false;
+    label.textContent = 'Submit Request';
+  }
+});
+</script>
+</body>
+</html>
