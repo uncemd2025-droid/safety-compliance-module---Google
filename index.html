@@ -368,6 +368,96 @@ async function syncStateToOneDrive(json){
   await uploadBytesToOneDrive(`${CONFIG.MS_GRAPH.FOLDER}/dashboard-state.json`, new TextEncoder().encode(json), 'application/json');
 }
 
+/* ============================================================
+   PUBLIC TEMP. CONNECTION REQUEST SYNC (Google Apps Script)
+   ------------------------------------------------------------
+   The standalone public form (trc-request.html) lets anyone submit a
+   Temporary Electrical Connection request with no login — those
+   submissions land in a Google Sheet via the Apps Script Web App below,
+   NOT via the OneDrive/MSAL flow above (a stranger has no Microsoft
+   account tied to this org, so that flow isn't available to them).
+   This dashboard periodically (and on-demand via the "Sync public
+   requests" button on the Register page) pulls new submissions from
+   that Sheet into STATE.tempConnections, then tells the script to mark
+   them as synced so they aren't imported twice.
+   TC_GAS_KEY gates the read/sync endpoints so only this dashboard (which
+   knows the secret) can list or mark submissions — the public form itself
+   never needs or sees this secret, since submitting doesn't require it.
+   ============================================================ */
+const TC_GAS_URL = 'https://script.google.com/macros/s/AKfycbwv7Q-M9E8JG0jcRROkaqMfBnmbIBUXnOs79_djz3ea7CpfstpqiA62g4-EHITClsC6ow/exec';
+const TC_GAS_KEY = 'dsflgblKSDFKBSDFKLHgdsfhlgbDFLHgdfhglhGDFHLGdhfhlGDFLHgfdlhgsdgfhgsdfhlgalhsgfhlagsdfgasdf';
+const TC_SYNC_INTERVAL_MS = 5 * 60 * 1000; // auto-sync every 5 minutes
+let tcSyncTimer = null;
+let tcSyncInFlight = false;
+
+async function fetchPendingTcRequests(){
+  const url = `${TC_GAS_URL}?action=list&status=Pending&key=${encodeURIComponent(TC_GAS_KEY)}`;
+  const resp = await fetch(url);
+  const data = await resp.json();
+  if(!data.ok) throw new Error(data.error || 'Could not fetch pending requests.');
+  return data.records || [];
+}
+
+async function markTcRequestsSynced(ids){
+  if(!ids.length) return;
+  // text/plain avoids the CORS preflight Apps Script Web Apps can't handle.
+  const resp = await fetch(`${TC_GAS_URL}?action=markSynced&key=${encodeURIComponent(TC_GAS_KEY)}`, {
+    method:'POST',
+    headers:{ 'Content-Type':'text/plain;charset=utf-8' },
+    body: JSON.stringify({ ids })
+  });
+  const data = await resp.json();
+  if(!data.ok) throw new Error(data.error || 'Could not mark requests as synced.');
+}
+
+async function syncPublicTempConnectionRequests({ silent } = {}){
+  if(tcSyncInFlight) return;
+  tcSyncInFlight = true;
+  try{
+    const pending = await fetchPendingTcRequests();
+    if(!pending.length){
+      if(!silent) toast('No new temporary connection requests.');
+      return;
+    }
+
+    STATE.tempConnections = STATE.tempConnections || [];
+    const existingIds = new Set(STATE.tempConnections.map(r=>r.id));
+    const idsToMarkSynced = [];
+    let importedCount = 0;
+
+    pending.forEach(record=>{
+      if(!existingIds.has(record.id)){
+        STATE.tempConnections.push(record);
+        existingIds.add(record.id);
+        importedCount++;
+      }
+      idsToMarkSynced.push(record.id); // mark synced regardless, so a half-completed prior sync doesn't loop forever
+    });
+
+    if(idsToMarkSynced.length){
+      await markTcRequestsSynced(idsToMarkSynced);
+    }
+    if(importedCount > 0){
+      saveState();
+      render();
+      toast(`Imported ${importedCount} new temporary connection request${importedCount===1?'':'s'}.`, {duration:6000});
+    } else if(!silent){
+      toast('Requests were already up to date.');
+    }
+  }catch(err){
+    console.error('syncPublicTempConnectionRequests failed', err);
+    if(!silent) toast('Could not sync public requests (' + (err.message||'unknown error') + ').', {duration:8000});
+  }finally{
+    tcSyncInFlight = false;
+  }
+}
+
+function startTcAutoSync(){
+  if(tcSyncTimer) clearInterval(tcSyncTimer);
+  tcSyncTimer = setInterval(()=> syncPublicTempConnectionRequests({silent:true}), TC_SYNC_INTERVAL_MS);
+  setTimeout(()=> syncPublicTempConnectionRequests({silent:true}), 5000);
+}
+
 // Role hierarchy: viewer (read-only) < user (create/edit checklists & inspections) < admin (full access incl. Templates)
 const ROLE_RANK = { viewer:0, user:1, admin:2 };
 
@@ -1355,6 +1445,7 @@ window.addEventListener('hashchange', render);
 window.addEventListener('DOMContentLoaded', ()=>{
   if(!currentUser()){ renderLogin(); return; }
   loadState(); render();
+  startTcAutoSync();
 });
 
 /* ============================================================
@@ -2496,9 +2587,15 @@ route('/temp-connection/register', ()=>{
   statusFilter.addEventListener('change', renderTable);
   renderTable();
 
+  const syncBtn = el('button', {class:'btn btn-ghost', onclick:async ()=>{
+    syncBtn.disabled = true;
+    await syncPublicTempConnectionRequests();
+    syncBtn.disabled = false;
+  }}, [el('i', {class:'bx bx-refresh'}), ' Sync public requests']);
+
   shell(el('div', {}, [
     pageHeader('Temp. Connection — Register', STATE.tempConnections.length+' total requisition(s).', [
-      search, statusFilter
+      search, statusFilter, syncBtn
     ]),
     tableCard
   ]));
