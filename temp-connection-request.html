@@ -51,7 +51,7 @@
       </svg>
     </div>
     <h1 class="text-slate-800 text-2xl font-extrabold">Temporary Electrical Connection Request</h1>
-    <p class="text-slate-500 text-sm mt-1">Fill this form to request a temporary power connection. Your request goes straight to the safety team for review.</p>
+    <p class="text-slate-500 text-sm mt-1">Fill this form to request a temporary power connection. Your request goes straight to the EMD-Lighting  team for review.</p>
   </div>
 
   <form id="tcForm" class="card p-6 sm:p-8 space-y-6" autocomplete="off">
@@ -121,7 +121,7 @@
           <input required id="department" class="field-input" placeholder="e.g. Mechanical Maintenance">
         </div>
         <div class="sm:col-span-2">
-          <label class="field-label">Forwarded / recommended by *</label>
+          <label class="field-label">HOD/Section head *</label>
           <input required id="forwarding" class="field-input" placeholder="Name of shift-in-charge / section head">
         </div>
       </div>
@@ -263,7 +263,7 @@ document.getElementById('tcForm').addEventListener('submit', async (e) => {
     if (!resp.ok || !data.ok) {
       throw new Error(data.error || ('Request failed (HTTP ' + resp.status + ')'));
     }
-    showMsg('Request submitted successfully. Reference ID: ' + data.id + '. The safety team will review it shortly.', 'success');
+    showMsg('Request submitted successfully. Reference ID: ' + data.id + '. The EMD-Lighting team will review it shortly.', 'success');
     document.getElementById('tcForm').reset();
     selected.clear();
     document.querySelectorAll('.chip').forEach(c => c.classList.remove('checked'));
