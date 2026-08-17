@@ -118,7 +118,32 @@
         </div>
         <div>
           <label class="field-label">Department *</label>
-          <input required id="department" class="field-input" placeholder="e.g. Mechanical Maintenance">
+          <select required id="department" class="field-input">
+            <option value="">Select…</option>
+            <option>AHM</option>
+            <option>ASH UTILISATION</option>
+            <option>BMD</option>
+            <option>C&amp;I</option>
+            <option>C&amp;M</option>
+            <option>CHEMISTRY</option>
+            <option>CIVIL</option>
+            <option>EEMG</option>
+            <option>EMD</option>
+            <option>ENVT. MGT.</option>
+            <option>FM</option>
+            <option>FQA</option>
+            <option>HR</option>
+            <option>IT</option>
+            <option>MEDICAL</option>
+            <option>MTP</option>
+            <option>OFS</option>
+            <option>OPERATION</option>
+            <option>PROJECT</option>
+            <option>SAFETY</option>
+            <option>TMD</option>
+            <option>OTHER</option>
+          </select>
+          <input id="departmentOther" class="field-input mt-2 hidden" placeholder="Please specify department">
         </div>
         <div class="sm:col-span-2">
           <label class="field-label">HOD/Section head *</label>
@@ -184,6 +209,13 @@ function addMonthsClamped(dateStr, months) {
   return result.toISOString().slice(0, 10);
 }
 
+const departmentEl = document.getElementById('department');
+const departmentOtherEl = document.getElementById('departmentOther');
+departmentEl.addEventListener('change', () => {
+  departmentOtherEl.classList.toggle('hidden', departmentEl.value !== 'OTHER');
+  if (departmentEl.value !== 'OTHER') departmentOtherEl.value = '';
+});
+
 periodFromEl.addEventListener('change', () => {
   if (!periodFromEl.value) {
     periodToEl.removeAttribute('min');
@@ -239,6 +271,7 @@ document.getElementById('tcForm').addEventListener('submit', async (e) => {
     designation: document.getElementById('designation').value,
     empNo: document.getElementById('empNo').value,
     department: document.getElementById('department').value,
+    departmentOther: document.getElementById('departmentOther').value,
     forwarding: document.getElementById('forwarding').value,
     declared: document.getElementById('declared').checked,
     companyWebsite: document.getElementById('companyWebsite').value // honeypot, left blank by real users
