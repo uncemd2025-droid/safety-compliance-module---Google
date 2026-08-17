@@ -1148,6 +1148,37 @@ function loadDemoTempConnectionData(){
   return true;
 }
 
+// Removes every demo record created by loadDemoChecklistData()/seedDemoChecklistData()
+// and loadDemoTempConnectionData(), identified by their 'demo_' / 'demo_tc_' id prefixes.
+// Real assets, inspections, and TC requests are left untouched.
+function removeDemoData(){
+  const isDemoAsset = a => String(a && a.id || '').indexOf('demo_')===0;
+  const isDemoInspection = i => String(i && i.id || '').indexOf('demo_')===0
+    || (i && isDemoAsset({id:i.assetId}));
+  const isDemoTC = r => String(r && r.id || '').indexOf('demo_tc_')===0;
+
+  const assetCountBefore = (STATE.assets||[]).length;
+  const inspCountBefore = (STATE.inspections||[]).length;
+  const tcCountBefore = (STATE.tempConnections||[]).length;
+
+  STATE.assets = (STATE.assets||[]).filter(a=>!isDemoAsset(a));
+  STATE.inspections = (STATE.inspections||[]).filter(i=>!isDemoInspection(i));
+  STATE.tempConnections = (STATE.tempConnections||[]).filter(r=>!isDemoTC(r));
+
+  const removed = (assetCountBefore-STATE.assets.length)
+    + (inspCountBefore-STATE.inspections.length)
+    + (tcCountBefore-STATE.tempConnections.length);
+
+  if(removed===0){
+    toast('No demo data found to remove.');
+    return false;
+  }
+
+  saveState();
+  toast('Demo data removed successfully.');
+  return true;
+}
+
 // Throws on failure (instead of silently swallowing it) so callers that just did
 // STATE.<array>.push(record) can undo that push and let the user retry cleanly, rather
 // than the record silently existing in memory but never actually being persisted.
@@ -1930,6 +1961,7 @@ route('/', ()=>{
   shell(el('div', {}, [
     pageHeader('Dashboard', 'Live overview of every checklist group, asset count, and due-date health.', [
       hasRole('admin') ? el('button', {class:'btn btn-ghost', onclick:()=>{ const a=loadDemoChecklistData(); const b=loadDemoTempConnectionData(); if(a||b) render(); }}, [el('i', {class:'bx bx-data'}), ' Load Demo Data']) : null,
+      hasRole('admin') ? el('button', {class:'btn btn-ghost', onclick:()=>{ if(confirm('Remove all demo data (demo assets, inspections and demo TC requests)? Real records will not be affected.')){ const removed=removeDemoData(); if(removed) render(); } }}, [el('i', {class:'bx bx-trash'}), ' Remove Demo Data']) : null,
       hasRole('user') ? el('a', {href:'#/checklist', class:'btn btn-primary'}, ['Go to Checklist']) : null
     ]),
     statCards,
@@ -2183,6 +2215,7 @@ function tcIsOverdue(req){
 // stored status to 'Closed').
 function tcDisplayStatus(req){
   if(req.status==='Issued' && tcIsOverdue(req)) return 'Pending for removal';
+  if(req.status==='Pending') return 'Pending for approval';
   return req.status;
 }
 function tcStatusPill(status){
@@ -2196,6 +2229,48 @@ function tcStatusPill(status){
 function tcNextSlNo(){
   const n = STATE.tempConnections.filter(r=>r.slNo).length + 1;
   return 'TC-' + String(n).padStart(4,'0');
+}
+
+// Admin-only: permanently removes a temp-connection request/record from the register.
+// Used from both the Approver pages and the Register page.
+function deleteTcRequest(r, opts){
+  opts = opts || {};
+  if(!hasRole('admin')){ toast('You need Admin access to delete requests.'); return; }
+  if(!confirm('Delete this temporary connection request' + (r.location ? ' for "'+r.location+'"' : '') + '? This cannot be undone.')) return;
+  const backup = r;
+  STATE.tempConnections = STATE.tempConnections.filter(x=>x.id!==r.id);
+  saveState();
+  toast('Request deleted.', {undo:()=>{ STATE.tempConnections.push(backup); saveState(); render(); }});
+  if(opts.after) opts.after(); else render();
+}
+
+// Generates the Temp. Connection PDF and uploads it to OneDrive (falling back to a
+// local download only if OneDrive isn't connected or the upload fails). Only ever
+// called once a request has actually been approved/issued — see issue() below.
+async function generateAndStoreTcPdf(req){
+  let pdfDataUri;
+  try{
+    pdfDataUri = generateTempConnectionPdf(req);
+  }catch(e){
+    toast('PDF generation failed (' + (e&&e.message||'unknown error') + ') — the connection was still issued.', {duration:8000});
+    return;
+  }
+  const pdfFileName = `TempConnection_${(req.slNo||req.id)}_${(req.location||'').replace(/[^a-z0-9]+/gi,'_')}.pdf`;
+  if(msalInstance && isOneDriveConnected()){
+    try{
+      req.oneDriveUrl = await uploadBytesToOneDrive(
+        `${CONFIG.MS_GRAPH.FOLDER}/Temp Connections/${pdfFileName}`,
+        dataUriToBytes(pdfDataUri), 'application/pdf'
+      );
+      toast('Connection issued — PDF saved to OneDrive.');
+    }catch(e){
+      toast('OneDrive upload failed (' + (e&&e.message||'unknown error') + ') — downloading the PDF locally instead.', {duration:8000});
+      downloadPdf(pdfDataUri, pdfFileName);
+    }
+  } else {
+    downloadPdf(pdfDataUri, pdfFileName);
+    toast('Connection issued — not connected to OneDrive, so the PDF downloaded locally instead. Connect OneDrive from Settings to store future PDFs automatically.', {duration:8000});
+  }
 }
 
 /* ---- Page: New Request (#/temp-connection) ---- */
@@ -2319,7 +2394,7 @@ route('/temp-connection', ()=>{
       applicantName: nameInput.value.trim(), designation: designationInput.value.trim(),
       empNo: empNoInput.value.trim(), department: deptSelect.value, forwarding: forwardingInput.value.trim(),
       declared: true, status:'Pending', submittedAt: new Date().toISOString(),
-      slNo:'', issuedAt:'', technicianName:'', connectionDate:'', checklist:{}, rejectReason:''
+      slNo:'', issuedAt:'', technicianName:'', connectionDate:'', checklist:{}, rejectReason:'', oneDriveUrl:''
     };
     STATE.tempConnections.push(req);
     try{
@@ -2329,15 +2404,14 @@ route('/temp-connection', ()=>{
       toast('Something went wrong saving this request (' + (err&&err.message||'unknown error') + '). Nothing was lost from the form — please try again.', {duration:8000});
       return;
     }
-    let pdfNote = '';
-    try{ downloadPdf(generateTempConnectionPdf(req), `TempConnection_${req.location.replace(/[^a-z0-9]+/gi,'_')}.pdf`); }
-    catch(e){ pdfNote = ' PDF generation failed, but the request was saved.'; }
+    // No PDF is generated at submission time — the requisition PDF is only generated
+    // (and saved to OneDrive) once the approver issues the connection.
     resetForm();
-    toast('Request submitted successfully — now pending EMD review.' + pdfNote, {duration:6000});
+    toast('Request submitted successfully — now pending EMD review.', {duration:6000});
   }
 
   shell(el('div', {}, [
-    pageHeader('Temporary Electrical Connection', 'Requisition — to be filled by the applicant. A PDF copy downloads automatically on submission.'),
+    pageHeader('Temporary Electrical Connection', 'Requisition — to be filled by the applicant. The requisition PDF is generated and saved to OneDrive once EMD approves and issues the connection.'),
     el('div', {class:'card p-6 space-y-5 max-w-3xl'}, [
       el('div', {}, [
         el('div', {class:'font-head font-bold mb-3'}, ['Connection details']),
@@ -2391,7 +2465,10 @@ route('/temp-connection/approve', ()=>{
       el('div', {class:'text-xs text-slate-400 mt-1'}, [r.applicantName+' · '+r.supplyType+' · '+(r.purposes||[]).join(', ')]),
       el('div', {class:'text-xs text-slate-400'}, ['Period: '+fmtDate(r.periodFrom)+' → '+fmtDate(r.periodTo)+' · Submitted '+fmtDate(r.submittedAt)])
     ]),
-    el('a', {href:'#/temp-connection/approve/'+r.id, class:'btn btn-primary'}, ['Review →'])
+    el('div', {class:'flex gap-2'}, [
+      hasRole('admin') ? el('button', {class:'btn btn-danger', onclick:()=>deleteTcRequest(r, {after:render})}, ['Delete']) : null,
+      el('a', {href:'#/temp-connection/approve/'+r.id, class:'btn btn-primary'}, ['Review →'])
+    ])
   ])) : [el('div', {class:'card p-8 text-center text-slate-400'}, ['Nothing pending — all caught up.'])];
 
   function confirmRemoval(r){
@@ -2412,16 +2489,30 @@ route('/temp-connection/approve', ()=>{
     ]),
     el('div', {class:'flex gap-2'}, [
       el('a', {href:'#/temp-connection/approve/'+r.id, class:'btn btn-ghost'}, ['Details']),
-      el('button', {class:'btn btn-primary', onclick:()=>confirmRemoval(r)}, ['Confirm removal'])
+      el('button', {class:'btn btn-primary', onclick:()=>confirmRemoval(r)}, ['Confirm removal']),
+      hasRole('admin') ? el('button', {class:'btn btn-danger', onclick:()=>deleteTcRequest(r, {after:render})}, ['Delete']) : null
     ])
   ]));
 
   const recentRows = recent.map(r=> [
-    r.location, r.applicantName, r.slNo||'—', tcStatusPill(tcDisplayStatus(r)), r.issuedAt ? fmtDate(r.issuedAt) : fmtDate(r.submittedAt)
+    r.location, r.applicantName, r.slNo||'—', tcStatusPill(tcDisplayStatus(r)), r.issuedAt ? fmtDate(r.issuedAt) : fmtDate(r.submittedAt),
+    el('div', {class:'flex gap-2'}, [
+      r.oneDriveUrl ? el('button', {class:'btn btn-ghost', style:'padding:.25rem .6rem;', onclick:()=>showPdfPreviewFromUrl(r.oneDriveUrl, `TempConnection_${(r.slNo||r.id)}.pdf`)}, ['View PDF'])
+        : (r.status==='Issued' ? el('button', {class:'btn btn-ghost', style:'padding:.25rem .6rem;', onclick:()=>showPdfPreview(generateTempConnectionPdf(r), `TempConnection_${(r.slNo||r.id)}.pdf`)}, ['View PDF']) : null),
+      hasRole('admin') ? el('button', {class:'btn btn-danger', style:'padding:.25rem .6rem;', onclick:()=>deleteTcRequest(r, {after:render})}, ['Delete']) : null
+    ])
   ]);
+
+  const syncBtn = el('button', {class:'btn btn-ghost', onclick:async ()=>{
+    syncBtn.disabled = true;
+    await syncPublicTempConnectionRequests();
+    syncBtn.disabled = false;
+    render();
+  }}, [el('i', {class:'bx bx-refresh'}), ' Sync public requests']);
 
   shell(el('div', {}, [
     pageHeader('Temp. Connection — Approver', pending.length+' request(s) awaiting review'+(dueForRemoval.length?', '+dueForRemoval.length+' pending removal':'')+'.', [
+      syncBtn,
       el('a', {href:'#/temp-connection', class:'btn btn-primary'}, ['+ New Request'])
     ]),
     dueForRemoval.length ? el('div', {class:'mb-6'}, [
@@ -2433,7 +2524,7 @@ route('/temp-connection/approve', ()=>{
     recent.length ? el('div', {class:'mt-8'}, [
       el('h3', {class:'font-head font-bold mb-3 text-sm text-slate-400 uppercase tracking-wide'}, ['Recently decided']),
       el('div', {class:'card overflow-x-auto'}, [gridTable(
-        [{label:'Location',width:'26%'},{label:'Applicant',width:'22%'},{label:'SL No.',width:'14%'},{label:'Status',width:'18%'},{label:'Date',width:'20%'}],
+        [{label:'Location',width:'22%'},{label:'Applicant',width:'18%'},{label:'SL No.',width:'12%'},{label:'Status',width:'16%'},{label:'Date',width:'16%'},{label:'Actions',width:'16%'}],
         recentRows
       )])
     ]) : null
@@ -2455,7 +2546,11 @@ route('/temp-connection/approve/:id', ({params})=>{
     el('p', {}, [el('b',{},['Purpose: ']), (req.purposes||[]).join(', ') + (req.purposeOther ? ' ('+req.purposeOther+')' : '')]),
     el('p', {}, [el('b',{},['Requirement: ']), req.requirement||'—']),
     el('p', {}, [el('b',{},['Requested period: ']), fmtDate(req.periodFrom)+' → '+fmtDate(req.periodTo)]),
-    el('div', {class:'mt-2'}, [el('button', {class:'btn btn-ghost', onclick:()=>downloadPdf(generateTempConnectionPdf(req), `TempConnection_${req.location.replace(/[^a-z0-9]+/gi,'_')}.pdf`)}, ['Re-download PDF'])])
+    req.status==='Issued' ? el('div', {class:'mt-2 flex gap-2'}, [
+      req.oneDriveUrl
+        ? el('button', {class:'btn btn-ghost', onclick:()=>showPdfPreviewFromUrl(req.oneDriveUrl, `TempConnection_${(req.slNo||req.id)}.pdf`)}, ['View PDF'])
+        : el('button', {class:'btn btn-ghost', onclick:()=>showPdfPreview(generateTempConnectionPdf(req), `TempConnection_${(req.slNo||req.id)}.pdf`)}, ['View PDF'])
+    ]) : el('p', {class:'text-xs text-slate-400 mt-2'}, ['The requisition PDF is generated and saved to OneDrive once this request is approved and issued.'])
   ]);
 
   let decisionBlock;
@@ -2493,7 +2588,7 @@ route('/temp-connection/approve/:id', ({params})=>{
     const dateInput = el('input', {type:'date', value:new Date().toISOString().slice(0,10)});
     const errBox = el('div', {class:'text-sm', style:'color:var(--red); display:none;'});
 
-    function issue(){
+    async function issue(){
       req.checklist = {...toggles};
       req.slNo = slInput.value.trim() || tcNextSlNo();
       req.technicianName = techInput.value.trim();
@@ -2501,7 +2596,9 @@ route('/temp-connection/approve/:id', ({params})=>{
       req.status = 'Issued';
       req.issuedAt = new Date().toISOString();
       saveState();
-      toast('Connection issued.');
+      // Only now — once approved — is the requisition PDF generated and saved.
+      await generateAndStoreTcPdf(req);
+      saveState();
       navigate('/temp-connection/approve');
     }
     function reject(){
@@ -2523,7 +2620,8 @@ route('/temp-connection/approve/:id', ({params})=>{
       errBox,
       el('div', {class:'flex gap-2 mt-4'}, [
         el('button', {class:'btn btn-primary', onclick:issue}, ['Issue connection']),
-        el('button', {class:'btn btn-danger', onclick:reject}, ['Reject'])
+        el('button', {class:'btn btn-danger', onclick:reject}, ['Reject']),
+        hasRole('admin') ? el('button', {class:'btn btn-danger', onclick:()=>deleteTcRequest(req, {after:()=>navigate('/temp-connection/approve')})}, ['Delete']) : null
       ])
     ]);
   } else {
@@ -2535,7 +2633,8 @@ route('/temp-connection/approve/:id', ({params})=>{
         : (req.rejectReason ? el('p', {class:'text-sm mt-2'}, [el('b',{},['Reason: ']), req.rejectReason]) : null),
       req.status==='Closed'
         ? el('p', {class:'text-sm mt-2 text-slate-500'}, [el('b',{},['Removed: ']), fmtDate(req.removedAt)])
-        : null
+        : null,
+      hasRole('admin') ? el('div', {class:'mt-4'}, [el('button', {class:'btn btn-danger', onclick:()=>deleteTcRequest(req, {after:()=>navigate('/temp-connection/approve')})}, ['Delete request'])]) : null
     ]);
   }
 
@@ -2549,8 +2648,8 @@ route('/temp-connection/approve/:id', ({params})=>{
 /* ---- Page: Register (#/temp-connection/register) ---- */
 route('/temp-connection/register', ()=>{
   const search = el('input', {placeholder:'Search location or applicant…', style:'width:280px;'});
-  const statusFilter = el('select', {style:'width:180px;'}, [
-    el('option',{value:''},['All statuses']), el('option',{value:'Pending'},['Pending']),
+  const statusFilter = el('select', {style:'width:200px;'}, [
+    el('option',{value:''},['All statuses']), el('option',{value:'Pending for approval'},['Pending for approval']),
     el('option',{value:'Issued'},['Issued']), el('option',{value:'Pending for removal'},['Pending for removal']),
     el('option',{value:'Closed'},['Closed']), el('option',{value:'Rejected'},['Rejected'])
   ]);
@@ -2558,13 +2657,14 @@ route('/temp-connection/register', ()=>{
   const tableCard = el('div', {class:'card overflow-x-auto'}, [tableWrap]);
 
   const REGISTER_COLUMNS = [
-    {label:'SL No.', width:'10%', sort:r=> r.slNo || ''},
-    {label:'Location', width:'22%', sort:r=> (r.location||'').toLowerCase()},
-    {label:'Applicant', width:'16%', sort:r=> (r.applicantName||'').toLowerCase()},
-    {label:'Dept.', width:'10%', sort:r=> (r.department||'').toLowerCase()},
-    {label:'Purpose', width:'20%'},
-    {label:'Valid up to', width:'12%', sort:r=> r.periodTo || ''},
-    {label:'Status', width:'10%', sort:r=> tcDisplayStatus(r)}
+    {label:'SL No.', width:'9%', sort:r=> r.slNo || ''},
+    {label:'Location', width:'18%', sort:r=> (r.location||'').toLowerCase()},
+    {label:'Applicant', width:'14%', sort:r=> (r.applicantName||'').toLowerCase()},
+    {label:'Dept.', width:'9%', sort:r=> (r.department||'').toLowerCase()},
+    {label:'Purpose', width:'16%'},
+    {label:'Valid up to', width:'10%', sort:r=> r.periodTo || ''},
+    {label:'Status', width:'10%', sort:r=> tcDisplayStatus(r)},
+    {label:'Actions', width:'14%'}
   ];
 
   function renderTable(){
@@ -2580,7 +2680,15 @@ route('/temp-connection/register', ()=>{
     if(!rows.length){ tableWrap.appendChild(el('div', {class:'p-8 text-center text-slate-400'}, ['No matching requisitions.'])); return; }
     renderSortableTable(tableWrap, REGISTER_COLUMNS, rows, r=>[
       r.slNo||'—', r.location, r.applicantName, r.department, (r.purposes||[]).join(', '),
-      r.periodTo ? fmtDate(r.periodTo) : '—', tcStatusPill(tcDisplayStatus(r))
+      r.periodTo ? fmtDate(r.periodTo) : '—', tcStatusPill(tcDisplayStatus(r)),
+      el('div', {class:'flex gap-2'}, [
+        r.oneDriveUrl
+          ? el('button', {class:'btn btn-ghost', style:'padding:.25rem .6rem;', onclick:()=>showPdfPreviewFromUrl(r.oneDriveUrl, `TempConnection_${(r.slNo||r.id)}.pdf`)}, ['View PDF'])
+          : (r.status==='Issued' || r.status==='Closed'
+              ? el('button', {class:'btn btn-ghost', style:'padding:.25rem .6rem;', onclick:()=>showPdfPreview(generateTempConnectionPdf(r), `TempConnection_${(r.slNo||r.id)}.pdf`)}, ['View PDF'])
+              : el('span', {class:'text-xs text-slate-400'}, ['—'])),
+        hasRole('admin') ? el('button', {class:'btn btn-danger', style:'padding:.25rem .6rem;', onclick:()=>deleteTcRequest(r, {after:renderTable})}, ['Delete']) : null
+      ])
     ], {initialSortIdx:5, initialSortDir:-1}); // default: newest "valid up to" first, matches prior sort-by-submitted behavior
   }
   search.addEventListener('input', renderTable);
@@ -2591,6 +2699,7 @@ route('/temp-connection/register', ()=>{
     syncBtn.disabled = true;
     await syncPublicTempConnectionRequests();
     syncBtn.disabled = false;
+    render();
   }}, [el('i', {class:'bx bx-refresh'}), ' Sync public requests']);
 
   shell(el('div', {}, [
@@ -3120,16 +3229,17 @@ route('/assets/:templateId/:assetId', ({params})=>{
 
   const historyTable = history.length ? gridTable(
     [
-      {label:'Date', width:'18%'},
-      {label:'Inspector', width:'22%'},
-      {label:'PDF', width:'35%'},
-      {label:'', width:'25%', align:'right'}
+      {label:'Date', width:'25%'},
+      {label:'Inspector', width:'35%'},
+      {label:'', width:'40%', align:'right'}
     ],
     history.map(h=> [
       fmtDate(h.date),
       h.inspector || '—',
-      h.oneDriveUrl ? el('a',{href:h.oneDriveUrl, target:'_blank', class:'underline', style:'color:#0c4fc0;'},['View on OneDrive']) : el('span',{class:'text-slate-400'},['local only']),
-      el('button',{class:'btn btn-ghost', onclick:()=>regeneratePdf(t,a,h)},['Re-download PDF'])
+      el('button', {class:'btn btn-ghost', style:'padding:.25rem .6rem;', onclick:()=>{
+        if(h.oneDriveUrl) showPdfPreviewFromUrl(h.oneDriveUrl, `${t.name}_${h.date}.pdf`);
+        else showPdfPreview(generatePDF(t,a,h), `${t.name}_${h.date}.pdf`);
+      }}, ['View PDF'])
     ])
   ) : null;
 
@@ -3283,7 +3393,7 @@ function openInspectionModal(t, a){
       if(photoData){ insp.photo = photoData; insp.photoDims = await loadImageDims(photoData); }
 
       if(!window.jspdf || !window.jspdf.jsPDF){
-        toast('PDF library failed to load (check your internet connection) — saving the inspection anyway. Use "Re-download PDF" from the asset history once the page can reach the internet.', {duration:8000});
+        toast('PDF library failed to load (check your internet connection) — saving the inspection anyway. Use "View PDF" from the asset history once the page can reach the internet.', {duration:8000});
         persistInspection(insp);
         bg.remove();
         render();
@@ -3294,7 +3404,7 @@ function openInspectionModal(t, a){
       try{
         pdfDataUri = generatePDF(t, a, insp);
       }catch(err){
-        toast('PDF generation failed (' + err.message + ') — the inspection was still saved. Try "Re-download PDF" from the asset history.', {duration:8000});
+        toast('PDF generation failed (' + err.message + ') — the inspection was still saved. Try "View PDF" from the asset history.', {duration:8000});
         persistInspection(insp);
         bg.remove();
         render();
@@ -3302,6 +3412,7 @@ function openInspectionModal(t, a){
       }
 
       const pdfFileName = `${t.name}_${insp.date}_${a.fieldValues[t.assetFields[0].key]||a.id}.pdf`;
+      let uploadFailed = false;
       if(msalInstance && isOneDriveConnected()){
         try{
           insp.oneDriveUrl = await uploadBytesToOneDrive(
@@ -3310,7 +3421,8 @@ function openInspectionModal(t, a){
             'application/pdf'
           );
         }catch(e){
-          toast('OneDrive upload failed (' + (e && e.message || 'unknown error') + ') — the PDF was still saved and downloaded locally.', {duration:8000});
+          uploadFailed = true;
+          toast('OneDrive upload failed (' + (e && e.message || 'unknown error') + ') — downloading the PDF locally instead.', {duration:8000});
         }
       } else if(CONFIG.GAS_URL){
         try{
@@ -3320,12 +3432,17 @@ function openInspectionModal(t, a){
           })});
           const j = await resp.json();
           insp.oneDriveUrl = j.url || '';
-        }catch(e){ /* offline fallback below */ }
+          if(!insp.oneDriveUrl) uploadFailed = true;
+        }catch(e){ uploadFailed = true; }
+      } else {
+        uploadFailed = true; // not connected to any cloud storage at all
       }
       persistInspection(insp);
-      downloadPdf(pdfDataUri, `${t.name}_${insp.date}.pdf`);
+      // Only fall back to a local download when the PDF couldn't be saved to
+      // OneDrive/Drive — no more downloading a local copy on every save.
+      if(uploadFailed) downloadPdf(pdfDataUri, `${t.name}_${insp.date}.pdf`);
       bg.remove();
-      toast('Inspection saved' + (insp.oneDriveUrl ? ' and uploaded to OneDrive.' : ' — PDF downloaded locally.'));
+      toast('Inspection saved' + (insp.oneDriveUrl ? ' and saved to OneDrive.' : ' — not connected to OneDrive, so the PDF downloaded locally instead.'));
       render();
     }catch(err){
       console.error('Save & Generate PDF failed:', err);
@@ -3650,9 +3767,48 @@ function downloadPdf(dataUri, filename){
   const a = document.createElement('a');
   a.href = dataUri; a.download = filename; a.click();
 }
+
+// Shows a PDF in an in-app popup instead of downloading it straight away.
+// The popup itself has a Download button so the person can still save a copy
+// if they want one — used everywhere a PDF is offered across the app.
+function showPdfPreview(dataUri, filename){
+  const bg = el('div', {class:'modal-bg', style:'align-items:flex-start; padding-top:3vh;'});
+  const box = el('div', {class:'modal-box p-0', style:'width:min(920px,96vw); max-width:none; height:92vh; max-height:none; display:flex; flex-direction:column; overflow:hidden;'}, [
+    el('div', {class:'flex items-center justify-between gap-3', style:'padding:.75rem 1rem; border-bottom:1px solid var(--line);'}, [
+      el('div', {class:'font-head font-bold text-sm truncate'}, [filename]),
+      el('div', {class:'flex gap-2 flex-shrink-0'}, [
+        el('button', {class:'btn btn-primary', onclick:()=>downloadPdf(dataUri, filename)}, [el('i',{class:'bx bx-download'}), ' Download']),
+        el('button', {class:'btn btn-ghost', onclick:()=>bg.remove()}, ['Close'])
+      ])
+    ]),
+    el('iframe', {src:dataUri, style:'flex:1; width:100%; border:0; background:#525659;'})
+  ]);
+  bg.addEventListener('click', e=>{ if(e.target===bg) bg.remove(); });
+  bg.appendChild(box); document.body.appendChild(bg);
+}
+
+// Opens a preview popup for a PDF that already lives at a URL (e.g. OneDrive) —
+// fetches the bytes so it can render in the same in-app viewer rather than a
+// separate browser tab, with the same Download button inside the popup.
+async function showPdfPreviewFromUrl(url, filename){
+  try{
+    const resp = await fetch(url);
+    if(!resp.ok) throw new Error('HTTP ' + resp.status);
+    const blob = await resp.blob();
+    const reader = new FileReader();
+    reader.onload = ()=> showPdfPreview(reader.result, filename);
+    reader.onerror = ()=> { window.open(url, '_blank'); };
+    reader.readAsDataURL(blob);
+  }catch(e){
+    // Cross-origin/auth restrictions on the stored file — fall back to opening it directly.
+    window.open(url, '_blank');
+  }
+}
 function regeneratePdf(t,a,insp){
+  // Deprecated: PDFs are now viewed via showPdfPreview()/showPdfPreviewFromUrl()
+  // instead of being force-downloaded. Kept only for any external callers.
   const uri = generatePDF(t,a,insp);
-  downloadPdf(uri, `${t.name}_${insp.date}.pdf`);
+  showPdfPreview(uri, `${t.name}_${insp.date}.pdf`);
 }
 
 /* ============================================================
