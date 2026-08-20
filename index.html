@@ -3,31 +3,28 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
-<title>Safety Compliance Module</title>
+<title>Universal Checklist &amp; Inspection Manager</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@azure/msal-browser@2/lib/msal-browser.min.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Public+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/boxicons@2.1.4/css/boxicons.min.css">
 <style>
   :root{
-    /* Design tokens re-themed to match the NTPC login illustration (deep signal-blue brand
-       colour + slate-navy ink), replacing the original Sneat purple. */
-    --ink:#243347; --sub:#75808f; --line:#e6e9ee; --card:#fff; --bg:#f5f7fb;
+    /* Sneat design tokens (pulled from the actual template's SCSS variables) */
+    --ink:#2b2c40; --sub:#7a838b; --line:#e9eaec; --card:#fff; --bg:#f7f7f9;
     --sidebar-w:260px;
-    /* primary = NTPC brand blue sampled from the login artwork (#0c4fc0) */
-    --sky:#0c4fc0; --sky-l:#e4ecfa;
-    --indigo:#0c4fc0; --indigo-l:#e4ecfa;
-    --amber:#a36400; --amber-l:#fff3d6;      /* warning, readable text tint */
-    --green:#3a8a1a; --green-l:#e8f9e0;      /* success, readable text tint */
-    --red:#c92c12; --red-l:#ffe4df;          /* danger, readable text tint */
-    --info:#0c4fc0; --info-l:#e4ecfa;        /* info matches brand blue */
-    --shadow-sm:0 .125rem .375rem 0 rgba(12,53,110,.08);
-    --shadow:0 .1875rem .5rem 0 rgba(12,53,110,.12);
+    /* primary = Sneat purple #696cff; reused for role/indigo accents to match Sneat's mostly-monochrome branding */
+    --sky:#696cff; --sky-l:#ebebfe;
+    --indigo:#696cff; --indigo-l:#ebebfe;
+    --amber:#a36400; --amber-l:#fff3d6;      /* warning #ffab00, readable text tint */
+    --green:#3a8a1a; --green-l:#e8f9e0;      /* success #71dd37, readable text tint */
+    --red:#c92c12; --red-l:#ffe4df;          /* danger #ff3e1d, readable text tint */
+    --info:#04889f; --info-l:#d9f7fc;        /* info #03c3ec, readable text tint */
+    --shadow-sm:0 .125rem .375rem 0 rgba(34,48,62,.08);
+    --shadow:0 .1875rem .5rem 0 rgba(34,48,62,.1);
   }
-  *,*::before,*::after{box-sizing:border-box;}
   *{font-family:'Public Sans',-apple-system,'Segoe UI',sans-serif;}
   a{text-decoration:none; color:inherit;}
   h1,h2,h3,h4,.font-head{font-family:'Public Sans',sans-serif; font-weight:700;}
@@ -36,15 +33,13 @@
   .card:hover{box-shadow:var(--shadow);}
   .btn{display:inline-flex; align-items:center; gap:.4rem; font-weight:500; border-radius:.375rem; padding:.5rem 1rem; transition:background-color .15s ease, transform .1s ease, box-shadow .15s ease; font-size:.875rem; cursor:pointer; border:none;}
   .btn:active{transform:scale(.97);}
-  .btn-primary{background:#0c4fc0; color:#fff; box-shadow:0 .125rem .25rem 0 rgba(12,79,192,.4);} .btn-primary:hover{background:#0a3f9c;}
+  .btn-primary{background:#696cff; color:#fff; box-shadow:0 .125rem .25rem 0 rgba(105,108,255,.4);} .btn-primary:hover{background:#5f61e0;}
   .btn-ghost{background:#fff; border:1px solid var(--line); color:var(--ink);} .btn-ghost:hover{background:#f7f7f9;}
   .btn-danger{background:var(--red-l); color:var(--red);} .btn-danger:hover{background:#ffd4cb;}
-  .btn-indigo{background:#0c4fc0; color:#fff;} .btn-indigo:hover{background:#0a3f9c;}
+  .btn-indigo{background:#696cff; color:#fff;} .btn-indigo:hover{background:#5f61e0;}
   .btn-success{background:#71dd37; color:#fff; box-shadow:0 .125rem .25rem 0 rgba(113,221,55,.4);} .btn-success:hover{background:#64c72f;}
   input,select,textarea{border:1px solid var(--line); border-radius:.375rem; padding:.5rem .8rem; font-size:.875rem; width:100%; background:#fff; color:var(--ink);}
-  input:focus,select:focus,textarea:focus{outline:none; border-color:#0c4fc0; box-shadow:0 .125rem .25rem 0 rgba(12,79,192,.4);}
-  .field-invalid{border-color:var(--red) !important; box-shadow:0 0 0 1px var(--red) inset;}
-  .field-invalid-group{border:1px solid var(--red) !important; border-radius:.5rem; padding:.5rem; margin:-.5rem -.5rem 0;}
+  input:focus,select:focus,textarea:focus{outline:none; border-color:#696cff; box-shadow:0 .125rem .25rem 0 rgba(105,108,255,.4);}
   label.field-label{font-size:.75rem; font-weight:600; color:var(--sub); text-transform:uppercase; letter-spacing:.03em; margin-bottom:.25rem; display:block;}
   .pill{display:inline-flex; align-items:center; gap:.3rem; font-size:.7rem; font-weight:600; padding:.25rem .65rem; border-radius:50rem; letter-spacing:.02em; transition:background-color .2s ease, color .2s ease;}
   .status-ok{background:var(--green-l); color:var(--green);}
@@ -72,10 +67,10 @@
   .insp-modal-header{padding:1.1rem 1.5rem .9rem; border-bottom:1px solid var(--line); display:flex; align-items:flex-start; justify-content:space-between; gap:1rem;}
   .insp-modal-body{overflow-y:auto; padding:1.25rem 1.5rem;}
   .insp-modal-footer{border-top:1px solid var(--line); padding:.9rem 1.5rem; display:flex; align-items:center; justify-content:space-between; gap:1rem; flex-wrap:wrap;}
-  .group-banner{background:#e4ecfa; border-left:3px solid #0c4fc0; padding:.75rem 1.1rem; border-radius:.5rem; margin-bottom:.75rem;}
+  .group-banner{background:#ebebfe; border-left:3px solid #696cff; padding:.75rem 1.1rem; border-radius:.5rem; margin-bottom:.75rem;}
   [id^="grp-"]{scroll-margin-top:24px;}
   .role-chip{font-size:.7rem; font-weight:700; padding:.2rem .55rem; border-radius:50rem; text-transform:uppercase; letter-spacing:.03em;}
-  .role-admin{background:var(--indigo-l); color:#0c4fc0;}
+  .role-admin{background:var(--indigo-l); color:#696cff;}
   .role-user{background:var(--info-l); color:var(--info);}
   .role-viewer{background:#eceef0; color:var(--sub);}
   .modal-bg{position:fixed; inset:0; background:rgba(34,48,62,.55); display:flex; align-items:center; justify-content:center; z-index:50; padding:1rem; animation:fadeIn .15s ease;}
@@ -89,18 +84,18 @@
   .radio-group{display:flex; flex-wrap:nowrap !important; align-items:center;}
   .radio-group label{display:inline-flex; align-items:center; gap:.3rem; border:1px solid var(--line); padding:.35rem .55rem; border-radius:.375rem; cursor:pointer; font-size:.8rem; font-weight:500; white-space:nowrap !important; word-break:normal !important; overflow-wrap:normal !important; flex:0 0 auto;}
   .radio-group input:checked + span{font-weight:700;}
-  .radio-group label:has(input:checked){border-color:#0c4fc0; background:var(--sky-l);}
+  .radio-group label:has(input:checked){border-color:#696cff; background:var(--sky-l);}
   .drag-handle{cursor:grab; color:#bdc1c5;}
   .row2{display:grid; grid-template-columns:1fr 1fr; gap:1rem;}
   @media (max-width:640px){ .row2{grid-template-columns:1fr;} }
   .nav-link{padding:.4rem .8rem; border-radius:.375rem; font-weight:600; font-size:.82rem; color:var(--sub); background:#f7f7f9; transition:background-color .15s ease, color .15s ease; display:inline-flex; align-items:center;}
-  .nav-link:hover{background:#e4ecfa; color:#0c4fc0;}
+  .nav-link:hover{background:#ebebfe; color:#696cff;}
   ::-webkit-scrollbar{width:8px; height:8px;} ::-webkit-scrollbar-thumb{background:#bdc1c5; border-radius:8px;}
 
   /* ===== Sneat-style layout shell: fixed left sidebar + slim top navbar ===== */
   .sneat-sidebar{position:fixed; top:0; left:0; bottom:0; width:var(--sidebar-w); background:#fff; border-right:1px solid var(--line); z-index:40; display:flex; flex-direction:column; overflow-y:auto;}
   .sneat-brand{display:flex; align-items:center; gap:.6rem; padding:1.35rem 1.5rem; flex-shrink:0;}
-  .sneat-brand .brand-icon{width:34px; height:34px; border-radius:.5rem; background:#0c4fc0; color:#fff; display:flex; align-items:center; justify-content:center; font-size:1.2rem; flex-shrink:0;}
+  .sneat-brand .brand-icon{width:34px; height:34px; border-radius:.5rem; background:#696cff; color:#fff; display:flex; align-items:center; justify-content:center; font-size:1.2rem; flex-shrink:0;}
   .sneat-brand .brand-text{font-weight:700; font-size:1.05rem; color:var(--ink); line-height:1.1;}
   .sneat-brand .brand-sub{font-size:.68rem; color:var(--sub); font-weight:500;}
   .sneat-menu{padding:.5rem .75rem 1.5rem; flex:1;}
@@ -108,7 +103,7 @@
   .sneat-menu-link{display:flex; align-items:center; gap:.7rem; padding:.6rem .75rem; border-radius:.375rem; color:#5f6b7a; font-weight:500; font-size:.9rem; margin-bottom:.15rem; transition:background-color .15s ease, color .15s ease;}
   .sneat-menu-link i{font-size:1.15rem; flex-shrink:0;}
   .sneat-menu-link:hover{background:#f7f7f9; color:var(--ink);}
-  .sneat-menu-link.active{background:#0c4fc0; color:#fff; box-shadow:0 .125rem .375rem 0 rgba(12,79,192,.45);}
+  .sneat-menu-link.active{background:#696cff; color:#fff; box-shadow:0 .125rem .375rem 0 rgba(105,108,255,.45);}
   .sneat-menu-link.active i{color:#fff;}
   .sneat-main{margin-left:var(--sidebar-w);}
   .sneat-navbar{background:#fff; border-bottom:1px solid var(--line); position:sticky; top:0; z-index:30;}
@@ -117,92 +112,7 @@
     .sneat-sidebar.open{transform:translateX(0); box-shadow:var(--shadow);}
     .sneat-main{margin-left:0;}
   }
-
-  /* ===== Login page: background illustration with overlaid sign-in card =====
-     login_bg.jpg is the supplied artwork (SAFETY COMPLIANCE MODULE illustration
-     with logo/"WELCOME BACK"/"Sign in to continue" baked in, and a blank white
-     card area on the right). We size a wrapper to the image's exact 1536x1024
-     aspect ratio so the live form fields we overlay always land inside that
-     blank card, at any viewport width. All overlay metrics use cqw so they
-     scale together with the wrapper. */
-  .login-page-bg{min-height:100vh; background:#f4f5f7; display:flex; align-items:center; justify-content:center; padding:24px;}
-  /* Card shell that floats the (now smaller) artwork+form above the plain
-     gray page background, like a drop-shadowed playing card. */
-  .login-card-shell{position:relative; width:100%; max-width:1106px; margin:0 auto; background:#fff; border-radius:1.1rem;
-    box-shadow:0 1.75rem 3.5rem rgba(15,23,42,.20), 0 .375rem 1rem rgba(15,23,42,.10); padding:14px; overflow:hidden;}
-  .login-wrap{position:relative; width:100%; max-width:1106px; margin:0 auto; container-type:inline-size;}
-  .login-wrap>img{display:block; width:100%; height:auto; border-radius:.7rem;}
-  .login-card{position:absolute; left:58.3%; top:12.3%; width:34.6%; height:73.9%; box-sizing:border-box;
-    display:flex; flex-direction:column; justify-content:flex-end; gap:1.5cqw; padding:0 4.6cqw 9cqw;}
-  .login-field{position:relative; display:flex; align-items:center; gap:.9cqw; background:#fff; border:1px solid #d7dbe3; border-radius:0.7cqw;
-    padding:0 1.1cqw; height:6.2cqw; max-height:44px;}
-  .login-field svg{flex-shrink:0; width:1.3cqw; height:1.3cqw; min-width:14px; min-height:14px; max-width:18px; max-height:18px; color:#8a94a3;}
-  .login-field input{border:none; outline:none; flex:1; min-width:0; width:100%; padding:0; margin:0; font-size:1.02cqw; line-height:1.2; font-family:inherit; color:#1e293b; background:transparent; height:100%;}
-  .login-field input::placeholder{color:#9aa3b0;}
-  .login-field .eye-toggle{background:none; border:none; padding:0; cursor:pointer; color:#8a94a3; display:flex; flex-shrink:0;}
-  .login-row{display:flex; align-items:center; justify-content:space-between; font-size:.95cqw;}
-  .login-row label{display:flex; align-items:center; gap:.5cqw; color:#334155; cursor:pointer; font-size:.95cqw;}
-  .login-row input[type=checkbox]{width:1.1cqw; height:1.1cqw; min-width:12px; min-height:12px; max-width:15px; max-height:15px; accent-color:#0c4fc0; cursor:pointer;}
-  .login-row a{color:#0c4fc0; font-weight:600; text-decoration:none; font-size:.95cqw;}
-  .login-row a:hover{text-decoration:underline;}
-  .login-btn{background:#0c4fc0; color:#fff; border:none; border-radius:0.7cqw; height:6.2cqw; max-height:44px; font-weight:700; font-size:1.05cqw;
-    letter-spacing:.04em; cursor:pointer; transition:background-color .15s ease;}
-  .login-btn:hover{background:#0a3f9c;}
-  .login-error{color:#dc2626; font-size:.9cqw; margin:0;}
-  .login-demo{max-width:1106px; margin:18px auto 0; padding:0 24px;}
-
-  /* ===== Infographic-style pie (dashboard: due-date status) ===== */
-  .infographic-pie-wrap{display:flex; align-items:center; justify-content:center; height:220px;}
-  .infographic-pie-inner{position:relative; width:210px; height:210px;}
-  .infographic-pie{position:relative; width:100%; height:100%; border-radius:50%; overflow:hidden; box-shadow:0 12px 26px rgba(20,40,60,0.18), inset 0 0 0 6px #fff;}
-  .infographic-pie-separator{position:absolute; left:50%; top:50%; width:50%; height:2px; transform-origin:0 50%; background:#fff; border-radius:1px; z-index:2; pointer-events:none; opacity:0;}
-  .infographic-pie-label{position:absolute; transform:translate(-50%,-50%); text-align:center; color:#fff; pointer-events:none; text-shadow:0 1px 3px rgba(0,0,0,0.25); z-index:3;}
-  .infographic-pie-label i{display:block; font-size:18px; line-height:1; margin-bottom:2px;}
-  .infographic-pie-label-title{font-family:'Public Sans',sans-serif; font-weight:800; font-size:10px; text-transform:uppercase; letter-spacing:.03em;}
-  .infographic-pie-label-value{font-weight:800; font-size:15px; line-height:1.1;}
-
-  /* ===== Infographic-style bar chart (dashboard: assets by group) ===== */
-  .infographic-bar-wrap{display:flex; align-items:flex-end; justify-content:space-around; gap:.6rem; height:220px; padding:0 .25rem;}
-  .infographic-bar-col{display:flex; flex-direction:column; align-items:center; flex:1 1 0; height:100%; justify-content:flex-end; min-width:0;}
-  .infographic-bar-value{font-weight:800; font-size:.78rem; color:var(--ink); margin-bottom:.35rem;}
-  .infographic-bar-track{width:100%; max-width:38px; height:150px; display:flex; align-items:flex-end;}
-  .infographic-bar-fill{width:100%; border-radius:.6rem .6rem .3rem .3rem; box-shadow:0 10px 20px rgba(20,40,60,.18); min-height:6px; transition:height .25s ease;}
-  .infographic-bar-label{margin-top:.5rem; font-size:.66rem; font-weight:700; color:var(--sub); text-align:center; text-transform:uppercase; letter-spacing:.02em; max-width:76px; line-height:1.2;}
-  .dashboard-chart-tooltip{background:#0f3557; color:#fff; padding:.55rem .7rem; border-radius:.55rem; box-shadow:0 8px 20px rgba(15,53,87,.22); font-size:.72rem; line-height:1.35; white-space:nowrap;}
-
-  /* ===== Infographic-style donut/gauge (dashboard: temp connection summary) ===== */
-  .infographic-donut-wrap{display:flex; align-items:center; justify-content:center; height:160px;}
-  .infographic-donut{position:relative; width:150px; height:150px; border-radius:50%; box-shadow:0 12px 26px rgba(20,40,60,.18);}
-  .infographic-donut-hole{position:absolute; inset:16%; background:#fff; border-radius:50%; display:flex; flex-direction:column; align-items:center; justify-content:center; box-shadow:inset 0 0 0 1px var(--line);}
-  .infographic-donut-hole i{font-size:20px; line-height:1; margin-bottom:2px;}
-  .infographic-donut-value{font-family:'Public Sans',sans-serif; font-weight:800; font-size:1.35rem; line-height:1.1;}
-  /* ===== Dashboard chart draw animations =====
-     No loading skeletons: charts render immediately and animate from zero.
-     Bars grow upward; pie and donut arcs draw from 0° to their final angle. */
-  @keyframes chartReveal{from{opacity:0; transform:translateY(5px);}to{opacity:1; transform:translateY(0);}}
-  .chart-reveal{animation:chartReveal .28s ease-out both;}
-  .infographic-bar-fill{transform-origin:bottom center;}
-  .chart-label-reveal{transition:opacity .22s ease-out;}
-  .dashboard-link-card{transition:transform .16s ease, box-shadow .16s ease, border-color .16s ease;}
-  .dashboard-link-card:hover{transform:translateY(-1px); box-shadow:0 8px 20px rgba(15,23,42,.08); border-color:rgba(21,80,138,.22);}
-  .dashboard-link-card:focus-visible{outline:2px solid rgba(21,80,138,.45); outline-offset:2px;}
-  @media (prefers-reduced-motion:reduce){
-    .chart-reveal{animation:none;}
-    .chart-label-reveal{transition:none;}
-  }
-  @media (max-width:720px){
-    .login-page-bg{padding:16px 16px 32px; align-items:flex-start; display:block;}
-    .login-card-shell{padding:8px; border-radius:14px; box-shadow:0 10px 26px rgba(15,23,42,.14);}
-    .login-card{position:static; width:100%; height:auto; margin-top:16px; background:#fff; border-radius:16px;
-      box-shadow:0 10px 30px rgba(15,23,42,.10); padding:20px 18px; gap:12px; container-type:normal;}
-    .login-field{padding:0 14px; height:44px; gap:10px; border-radius:10px;}
-    .login-field svg{width:18px; height:18px;}
-    .login-field input{font-size:14px; padding:0;}
-    .login-row, .login-row label, .login-row a{font-size:13px;}
-    .login-row input[type=checkbox]{width:15px; height:15px;}
-    .login-btn{height:44px; font-size:14px; border-radius:10px;}
-    .login-error{font-size:12px;}
-  }
+</style>
 </style>
 </head>
 <body>
@@ -213,7 +123,7 @@
    CONFIG
    ============================================================ */
 const CONFIG = {
-  BUILD_ID: '2026-08-11-onedrive-graph-integration-v1', // bump this whenever the file changes — shown in the footer so we can confirm which build is actually loaded
+  BUILD_ID: '2026-08-06-tempconn1', // bump this whenever the file changes — shown in the footer so we can confirm which build is actually loaded
   // Change these before real use — this is still a light, client-side gate
   // (see requireRole()/AUTH below), not a substitute for real server-side auth.
   USERS: [
@@ -221,242 +131,13 @@ const CONFIG = {
     { username:'user',   password:'user123',   role:'user',   label:'User' },
     { username:'viewer', password:'viewer123', role:'viewer', label:'Viewer' }
   ],
-  // Microsoft Graph / OneDrive integration. CLIENT_ID is the "Application
-  // (client) ID" from your Azure AD App Registration's Overview page.
-  // AUTHORITY 'common' allows both personal Microsoft accounts and work/school
-  // accounts to sign in — narrow it to https://login.microsoftonline.com/<tenant-id>
-  // if you only want your organisation's accounts. FOLDER is the top-level
-  // OneDrive folder that state backups and PDFs sync into.
-  MS_GRAPH: {
-    CLIENT_ID: '5b81fba4-dc33-4f70-8ae0-1bde6971167c',
-    AUTHORITY: 'https://login.microsoftonline.com/common',
-    FOLDER: 'Safety Dashboard Data'
-  },
-  // Legacy Google Apps Script fallback — only used when MS_GRAPH.CLIENT_ID above is blank.
+  // Point this at your deployed Google Apps Script Web App /exec URL to sync to
+  // Google Sheets + trigger OneDrive uploads server-side (see apps_script.gs).
+  // Left blank => app runs fully offline against localStorage only.
   GAS_URL: '',
   ORG_NAME: 'Periodic Safety Assessments (Internal to Station)',
   DOC_CODE: 'LMI/FGUTPS/SAFETY/OD/OPS/SAFT/005/safety-16 Rev. No.: R1 June 2024'
 };
-
-/* ============================================================
-   MICROSOFT GRAPH / ONEDRIVE INTEGRATION
-   Uses MSAL.js (loaded in <head>) for browser-based sign-in, then talks
-   directly to the Microsoft Graph API — no server backend required.
-   State backups and PDFs land in a OneDrive folder named CONFIG.MS_GRAPH.FOLDER
-   inside the signed-in user's own OneDrive.
-   ============================================================ */
-const msalInstance = (CONFIG.MS_GRAPH && CONFIG.MS_GRAPH.CLIENT_ID) ? new msal.PublicClientApplication({
-  auth: {
-    clientId: CONFIG.MS_GRAPH.CLIENT_ID,
-    authority: CONFIG.MS_GRAPH.AUTHORITY || 'https://login.microsoftonline.com/common',
-    // Points at a dedicated blank page (not this app's own URL) so MSAL's
-    // popup sign-in response doesn't collide with this app's own hash-based
-    // router, which would otherwise consume the auth response from the URL
-    // hash before MSAL can read it (causes "hash_does_not_contain_known_properties").
-    redirectUri: window.location.origin + window.location.pathname.substring(0, window.location.pathname.lastIndexOf('/') + 1) + 'blank.html'
-  },
-  cache: { cacheLocation: 'localStorage' }
-}) : null;
-if(msalInstance){
-  // Restore whichever account MSAL already has cached from a previous visit,
-  // so returning users don't have to sign in again every load.
-  const cachedAccount = msalInstance.getAllAccounts()[0];
-  if(cachedAccount) msalInstance.setActiveAccount(cachedAccount);
-}
-
-function isOneDriveConnected(){
-  return !!(msalInstance && (msalInstance.getActiveAccount() || msalInstance.getAllAccounts().length));
-}
-
-async function signInOneDrive(){
-  if(!msalInstance) return;
-  try{
-    const res = await msalInstance.loginPopup({ scopes:['Files.ReadWrite'] });
-    msalInstance.setActiveAccount(res.account);
-    toast('Signed in to OneDrive as ' + res.account.username);
-    render();
-  }catch(e){
-    toast('OneDrive sign-in failed (' + (e && e.message || 'unknown error') + ').', {duration:8000});
-  }
-}
-
-function signOutOneDrive(){
-  if(!msalInstance) return;
-  msalInstance.setActiveAccount(null);
-  toast('Disconnected this app from OneDrive.');
-  render();
-}
-
-async function getGraphToken(){
-  if(!msalInstance) throw new Error('OneDrive is not configured (missing CONFIG.MS_GRAPH.CLIENT_ID).');
-  const account = msalInstance.getActiveAccount() || msalInstance.getAllAccounts()[0];
-  if(!account) throw new Error('Not signed in to OneDrive.');
-  const request = { scopes:['Files.ReadWrite'], account };
-  try{
-    const res = await msalInstance.acquireTokenSilent(request);
-    return res.accessToken;
-  }catch(e){
-    // Silent refresh failed (e.g. token expired past the refresh window) — fall back to a popup.
-    const res = await msalInstance.acquireTokenPopup(request);
-    return res.accessToken;
-  }
-}
-
-function encodeGraphPath(path){
-  return path.split('/').map(encodeURIComponent).join('/');
-}
-
-function dataUriToBytes(dataUri){
-  const base64 = dataUri.split(',')[1];
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for(let i=0;i<binary.length;i++) bytes[i] = binary.charCodeAt(i);
-  return bytes;
-}
-
-// Uploads raw bytes to OneDrive at the given path (relative to the signed-in
-// user's drive root) — Graph creates any missing folders in the path automatically.
-// Files ≤4MB go through a single PUT; larger files (e.g. PDFs with embedded
-// photos) use a resumable upload session, chunked as Graph requires.
-async function uploadBytesToOneDrive(path, bytes, mimeType){
-  const token = await getGraphToken();
-  const encodedPath = encodeGraphPath(path);
-  const SIMPLE_LIMIT = 4 * 1024 * 1024;
-
-  if(bytes.byteLength <= SIMPLE_LIMIT){
-    const resp = await fetch(`https://graph.microsoft.com/v1.0/me/drive/root:/${encodedPath}:/content`, {
-      method: 'PUT',
-      headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': mimeType },
-      body: bytes
-    });
-    if(!resp.ok) throw new Error('OneDrive upload failed (HTTP ' + resp.status + ')');
-    const json = await resp.json();
-    return json.webUrl || '';
-  }
-
-  const sessionResp = await fetch(`https://graph.microsoft.com/v1.0/me/drive/root:/${encodedPath}:/createUploadSession`, {
-    method: 'POST',
-    headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ item: { '@microsoft.graph.conflictBehavior': 'replace' } })
-  });
-  if(!sessionResp.ok) throw new Error('Could not start OneDrive upload session (HTTP ' + sessionResp.status + ')');
-  const { uploadUrl } = await sessionResp.json();
-
-  const CHUNK = 327680 * 10; // ~3.2MB — must be a multiple of 320 KiB per Graph's upload-session rules
-  let start = 0, lastJson = null;
-  while(start < bytes.byteLength){
-    const end = Math.min(start + CHUNK, bytes.byteLength);
-    const chunk = bytes.slice(start, end);
-    const r = await fetch(uploadUrl, {
-      method: 'PUT',
-      headers: {
-        'Content-Length': String(chunk.byteLength),
-        'Content-Range': `bytes ${start}-${end - 1}/${bytes.byteLength}`
-      },
-      body: chunk
-    });
-    if(!r.ok && r.status !== 202) throw new Error('OneDrive chunk upload failed (HTTP ' + r.status + ')');
-    if(r.status !== 202) lastJson = await r.json();
-    start = end;
-  }
-  return lastJson ? (lastJson.webUrl || '') : '';
-}
-
-// Pushes the full app state to OneDrive as a rolling JSON backup (overwritten
-// on every save — same behaviour the old GAS_URL sync had).
-async function syncStateToOneDrive(json){
-  await uploadBytesToOneDrive(`${CONFIG.MS_GRAPH.FOLDER}/dashboard-state.json`, new TextEncoder().encode(json), 'application/json');
-}
-
-/* ============================================================
-   PUBLIC TEMP. CONNECTION REQUEST SYNC (Google Apps Script)
-   ------------------------------------------------------------
-   The standalone public form (trc-request.html) lets anyone submit a
-   Temporary Electrical Connection request with no login — those
-   submissions land in a Google Sheet via the Apps Script Web App below,
-   NOT via the OneDrive/MSAL flow above (a stranger has no Microsoft
-   account tied to this org, so that flow isn't available to them).
-   This dashboard periodically (and on-demand via the "Sync public
-   requests" button on the Register page) pulls new submissions from
-   that Sheet into STATE.tempConnections, then tells the script to mark
-   them as synced so they aren't imported twice.
-   TC_GAS_KEY gates the read/sync endpoints so only this dashboard (which
-   knows the secret) can list or mark submissions — the public form itself
-   never needs or sees this secret, since submitting doesn't require it.
-   ============================================================ */
-const TC_GAS_URL = 'https://script.google.com/macros/s/AKfycbwv7Q-M9E8JG0jcRROkaqMfBnmbIBUXnOs79_djz3ea7CpfstpqiA62g4-EHITClsC6ow/exec';
-const TC_GAS_KEY = 'dsflgblKSDFKBSDFKLHgdsfhlgbDFLHgdfhglhGDFHLGdhfhlGDFLHgfdlhgsdgfhgsdfhlgalhsgfhlagsdfgasdf';
-const TC_SYNC_INTERVAL_MS = 5 * 60 * 1000; // auto-sync every 5 minutes
-let tcSyncTimer = null;
-let tcSyncInFlight = false;
-
-async function fetchPendingTcRequests(){
-  const url = `${TC_GAS_URL}?action=list&status=Pending&key=${encodeURIComponent(TC_GAS_KEY)}`;
-  const resp = await fetch(url);
-  const data = await resp.json();
-  if(!data.ok) throw new Error(data.error || 'Could not fetch pending requests.');
-  return data.records || [];
-}
-
-async function markTcRequestsSynced(ids){
-  if(!ids.length) return;
-  // text/plain avoids the CORS preflight Apps Script Web Apps can't handle.
-  const resp = await fetch(`${TC_GAS_URL}?action=markSynced&key=${encodeURIComponent(TC_GAS_KEY)}`, {
-    method:'POST',
-    headers:{ 'Content-Type':'text/plain;charset=utf-8' },
-    body: JSON.stringify({ ids })
-  });
-  const data = await resp.json();
-  if(!data.ok) throw new Error(data.error || 'Could not mark requests as synced.');
-}
-
-async function syncPublicTempConnectionRequests({ silent } = {}){
-  if(tcSyncInFlight) return;
-  tcSyncInFlight = true;
-  try{
-    const pending = await fetchPendingTcRequests();
-    if(!pending.length){
-      if(!silent) toast('No new temporary connection requests.');
-      return;
-    }
-
-    STATE.tempConnections = STATE.tempConnections || [];
-    const existingIds = new Set(STATE.tempConnections.map(r=>r.id));
-    const idsToMarkSynced = [];
-    let importedCount = 0;
-
-    pending.forEach(record=>{
-      if(!existingIds.has(record.id)){
-        STATE.tempConnections.push(record);
-        existingIds.add(record.id);
-        importedCount++;
-      }
-      idsToMarkSynced.push(record.id); // mark synced regardless, so a half-completed prior sync doesn't loop forever
-    });
-
-    if(idsToMarkSynced.length){
-      await markTcRequestsSynced(idsToMarkSynced);
-    }
-    if(importedCount > 0){
-      saveState();
-      render();
-      toast(`Imported ${importedCount} new temporary connection request${importedCount===1?'':'s'}.`, {duration:6000});
-    } else if(!silent){
-      toast('Requests were already up to date.');
-    }
-  }catch(err){
-    console.error('syncPublicTempConnectionRequests failed', err);
-    if(!silent) toast('Could not sync public requests (' + (err.message||'unknown error') + ').', {duration:8000});
-  }finally{
-    tcSyncInFlight = false;
-  }
-}
-
-function startTcAutoSync(){
-  if(tcSyncTimer) clearInterval(tcSyncTimer);
-  tcSyncTimer = setInterval(()=> syncPublicTempConnectionRequests({silent:true}), TC_SYNC_INTERVAL_MS);
-  setTimeout(()=> syncPublicTempConnectionRequests({silent:true}), 5000);
-}
 
 // Role hierarchy: viewer (read-only) < user (create/edit checklists & inspections) < admin (full access incl. Templates)
 const ROLE_RANK = { viewer:0, user:1, admin:2 };
@@ -478,38 +159,9 @@ function groupOf(t){ return GROUP_MAP[t.id] || 'Other'; }
 function slugify(s){ return s.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/(^-|-$)/g,''); }
 
 /* ============================================================
-   CHART PALETTE — infographic-style colors used across dashboard
-   charts (bar / pie / doughnuts)
-   ============================================================ */
-const CHART_PALETTE = {
-  teal:        '#4EB3D3',
-  green:       '#A8DDB5',
-  yellow:      '#F9CF70',
-  orange:      '#F28E6B',
-  navy:        '#15508A',
-  blue:        '#2B8CBE',
-  cyan:        '#7BCCC4',
-  pieGreen:    '#15508A',
-  pieYellow:   '#2B8CBE',
-  pieOrange:   '#4EB3D3',
-  purple:      '#5D5A8D',
-  rose:        '#B85C73'
-};
-const CHART_COLOR_CYCLE = [CHART_PALETTE.navy, CHART_PALETTE.blue, '#2B8CBE', CHART_PALETTE.teal, CHART_PALETTE.cyan, CHART_PALETTE.green];
-
-/* ============================================================
    SEED TEMPLATES — extracted from the attached checklist PDFs
    ============================================================ */
 function uid(p){ return p + '_' + Math.random().toString(36).slice(2,9); }
-
-// Global safety net: if any async click handler anywhere in the app rejects without
-// being caught locally, surface it as a toast instead of letting it fail completely
-// silently (this is what made buttons look like they "did nothing" when an error
-// happened deep inside an async chain — see openInspectionModal's submit()).
-window.addEventListener('unhandledrejection', function(ev){
-  console.error('Unhandled error:', ev.reason);
-  try{ toast('Something went wrong (' + (ev.reason&&ev.reason.message || ev.reason || 'unknown error') + '). Please try again.', {duration:7000}); }catch(e){}
-});
 
 // Reads a File as a base64 data URL (used for embedding signatures/photos into PDFs).
 function readFileAsDataURL(file){
@@ -519,36 +171,6 @@ function readFileAsDataURL(file){
     reader.onload = ()=> resolve(reader.result);
     reader.onerror = ()=> reject(reader.error);
     reader.readAsDataURL(file);
-  });
-}
-// Reads a file, then downscales/re-encodes it as JPEG if it's larger than maxDim on its
-// longest side. A full-resolution phone photo can be 4-8 MB as base64, and localStorage's
-// quota is typically only 5-10 MB total — a few uncompressed photos/signatures is enough
-// to exceed it. Falls back to the plain (uncompressed) data URL if anything goes wrong.
-function readFileAsCompressedDataURL(file, maxDim, quality){
-  maxDim = maxDim || 1400; quality = quality || 0.72;
-  return new Promise((resolve, reject)=>{
-    if(!file){ resolve(null); return; }
-    readFileAsDataURL(file).then(rawDataUrl=>{
-      const img = new Image();
-      img.onload = ()=>{
-        try{
-          const scale = Math.min(1, maxDim / Math.max(img.naturalWidth, img.naturalHeight));
-          const w = Math.max(1, Math.round(img.naturalWidth * scale));
-          const h = Math.max(1, Math.round(img.naturalHeight * scale));
-          const canvas = document.createElement('canvas');
-          canvas.width = w; canvas.height = h;
-          const ctx = canvas.getContext('2d');
-          ctx.fillStyle = '#fff'; ctx.fillRect(0,0,w,h); // flatten transparency (JPEG has no alpha)
-          ctx.drawImage(img, 0, 0, w, h);
-          const compressed = canvas.toDataURL('image/jpeg', quality);
-          // Only use the compressed version if it's actually smaller — tiny images can grow under JPEG re-encoding.
-          resolve(compressed.length < rawDataUrl.length ? compressed : rawDataUrl);
-        }catch(e){ resolve(rawDataUrl); }
-      };
-      img.onerror = ()=> resolve(rawDataUrl);
-      img.src = rawDataUrl;
-    }).catch(reject);
   });
 }
 // Loads an image data URL just to read its natural pixel dimensions, so PDFs can
@@ -620,7 +242,6 @@ const SEED_TEMPLATES = [
     reminderLeadDays:7, reminderRepeatDays:14, reminderRecipients:'',
     assetFields:[
       {key:'assetNo', label:'ELCB / Equipment Identification / Location', type:'text', required:true},
-      {key:'noOfElcb', label:'No. of ELCB', type:'text'},
       {key:'department', label:'Department / Section', type:'text'},
       {key:'area', label:'Area', type:'text'},
       {key:'contractor', label:'Contractor / Agency', type:'text'}
@@ -639,7 +260,6 @@ const SEED_TEMPLATES = [
     reminderLeadDays:7, reminderRepeatDays:14, reminderRecipients:'',
     assetFields:[
       {key:'assetNo', label:'ELCB / Equipment Identification / Location', type:'text', required:true},
-      {key:'noOfElcb', label:'No. of ELCB', type:'text'},
       {key:'department', label:'Department / Section', type:'text'},
       {key:'area', label:'Area', type:'text'},
       {key:'contractor', label:'Contractor / Agency', type:'text'}
@@ -829,28 +449,9 @@ const SEED_TEMPLATES = [
    the shape of STATE mirrors the Sheet tabs described in the spec)
    ============================================================ */
 const LS_KEY = 'ucim_state_v1';
-const LS_BACKUP_KEY = LS_KEY + '_backup'; // single rolling backup — NOT date-stamped (see note below)
 let STATE = { templates:[], assets:[], inspections:[], tempConnections:[] };
 
-// One-time cleanup: earlier builds wrote a NEW dated key (ucim_state_v1_backup_2026-01-01,
-// _backup_2026-01-02, ...) on EVERY save and never deleted old ones. Since every save
-// duplicated the entire STATE (including base64 signatures/photos), this silently filled up
-// localStorage over days/weeks until the quota was hit — which is what caused the
-// "Setting the value of 'ucim_state_v1' exceeded the quota" error. This removes those
-// leftover dated keys so existing installs recover free space immediately.
-function purgeLegacyDatedBackups(){
-  try{
-    const toRemove = [];
-    for(let i=0;i<localStorage.length;i++){
-      const k = localStorage.key(i);
-      if(k && k.indexOf(LS_KEY + '_backup_') === 0) toRemove.push(k);
-    }
-    toRemove.forEach(k=> localStorage.removeItem(k));
-  }catch(e){ /* best-effort */ }
-}
-
 function loadState(){
-  purgeLegacyDatedBackups();
   const raw = localStorage.getItem(LS_KEY);
   if(raw){
     try{ STATE = JSON.parse(raw); }catch(e){ STATE = { templates:[], assets:[], inspections:[], tempConnections:[] }; }
@@ -863,357 +464,15 @@ function loadState(){
     saveState();
   }
   STATE.tempConnections = STATE.tempConnections || []; // backward-compat for sessions saved before this feature existed
-  seedDemoChecklistData();
-  if(STATE.assets.length && STATE.inspections.length) saveState();
 }
 
-// Demo data: populated only when the app has no assets/inspections yet.
-// This keeps a fresh installation useful for demonstrations while never
-// overwriting real inspection data already entered by the user.
-function seedDemoChecklistData(){
-  if((STATE.assets||[]).length || (STATE.inspections||[]).length) return;
-
-  const today = new Date();
-  const isoDate = d => {
-    const x = new Date(d);
-    const y = x.getFullYear();
-    const m = String(x.getMonth()+1).padStart(2,'0');
-    const day = String(x.getDate()).padStart(2,'0');
-    return `${y}-${m}-${day}`;
-  };
-  const dateOffset = days => {
-    const d = new Date(today);
-    d.setDate(d.getDate()+days);
-    return d;
-  };
-
-  const demoPeople = [
-    {inspector:'Amit Nayak', contractorName:'Sangam'},
-    {inspector:'Rajesh Kumar', contractorName:'ABC Services'},
-    {inspector:'Vivek Sharma', contractorName:'XYZ Engineering'}
-  ];
-
-  STATE.templates.forEach((t, ti)=>{
-    // One item due soon, one overdue and one healthy/OK item for every
-    // checklist type so the dashboard and reminder pages demonstrate all states.
-    const demoStates = [
-      {label:'DUE SOON', dueIn:Math.max(0, Math.min(3, (t.frequencyDays||30)-1))},
-      {label:'OVERDUE', dueIn:-7},
-      {label:'OK', dueIn:20}
-    ];
-
-    demoStates.forEach((demo, si)=>{
-      const person = demoPeople[(ti+si)%demoPeople.length];
-      const assetId = `demo_${t.id}_${si+1}`;
-      const assetNo = `${t.id.replace(/^t_/,'').toUpperCase()}-DEMO-${si+1}`;
-      const lastDate = dateOffset(demo.dueIn - (t.frequencyDays||30));
-
-      const fieldValues = {};
-      (t.assetFields||[]).forEach((f, fi)=>{
-        if(f.key==='assetNo') fieldValues[f.key] = assetNo;
-        else if(f.key==='department') fieldValues[f.key] = 'Electrical Maintenance';
-        else if(f.key==='area') fieldValues[f.key] = ['Main Plant','Turbine Area','Switchyard','Boiler Area'][ti%4];
-        else if(f.key==='contractor') fieldValues[f.key] = person.contractorName;
-        else fieldValues[f.key] = `Demo ${f.label}`;
-      });
-
-      STATE.assets.push({
-        id:assetId, templateId:t.id, createdOn:isoDate(dateOffset(-(t.frequencyDays||30))), fieldValues
-      });
-
-      const answers = (t.checklistItems||[]).map((it, idx)=>{
-        let answer = 'Pass';
-        if(it.responseType==='number') answer = String(10 + idx*5);
-        else if(it.responseType==='yes_no_na') answer = 'Yes';
-        else if(it.responseType==='pass_fail') answer = 'Pass';
-        else if(it.responseType==='rating_1_5') answer = '5';
-        return {
-          itemNo:it.no, description:it.description, answer,
-          remark: demo.label==='OVERDUE' && idx===0 ? 'Demo overdue item — follow-up required.' : ''
-        };
-      });
-
-      STATE.inspections.push({
-        id:`demo_insp_${t.id}_${si+1}`, assetId, templateId:t.id,
-        date:isoDate(lastDate),
-        department:'Electrical Maintenance',
-        area:fieldValues.area||'Main Plant',
-        contractor:fieldValues.contractor||person.contractorName,
-        contractorName:person.contractorName,
-        inspector:person.inspector,
-        observations: demo.label==='OVERDUE'
-          ? 'Demo record: inspection follow-up is overdue.'
-          : demo.label==='DUE SOON'
-            ? 'Demo record: next inspection is due soon.'
-            : 'Demo record: inspection completed satisfactorily.',
-        correctiveActions: demo.label==='OVERDUE' ? 'Schedule inspection and close pending observation.' : '',
-        answers,
-        inspectorSignature:null, inspectorSigDims:null,
-        contractorSignature:null, contractorSigDims:null,
-        photo:null, photoDims:null, oneDriveUrl:''
-      });
-    });
-  });
-}
-
-// Manually loads a non-destructive demo dataset for existing installations.
-// Real assets/inspections are preserved. A second click will not create duplicates.
-function loadDemoChecklistData(){
-  if((STATE.assets||[]).some(a=>String(a.id||'').indexOf('demo_')===0)){
-    toast('Demo checklist data is already loaded.');
-    return false;
-  }
-
-  const today = new Date();
-  const isoDate = d => {
-    const x = new Date(d);
-    const y = x.getFullYear();
-    const m = String(x.getMonth()+1).padStart(2,'0');
-    const day = String(x.getDate()).padStart(2,'0');
-    return `${y}-${m}-${day}`;
-  };
-  const dateOffset = days => {
-    const d = new Date(today);
-    d.setDate(d.getDate()+days);
-    return d;
-  };
-  const demoPeople = [
-    {inspector:'Amit Nayak', contractorName:'Sangam'},
-    {inspector:'Rajesh Kumar', contractorName:'ABC Services'},
-    {inspector:'Vivek Sharma', contractorName:'XYZ Engineering'}
-  ];
-  const batch = Date.now();
-
-  STATE.assets = STATE.assets || [];
-  STATE.inspections = STATE.inspections || [];
-
-  STATE.templates.forEach((t, ti)=>{
-    const demoStates = [
-      {label:'DUE SOON', dueIn:Math.max(0, Math.min(3, (t.frequencyDays||30)-1))},
-      {label:'OVERDUE', dueIn:-7},
-      {label:'OK', dueIn:20}
-    ];
-
-    demoStates.forEach((demo, si)=>{
-      const person = demoPeople[(ti+si)%demoPeople.length];
-      const assetId = `demo_manual_${batch}_${t.id}_${si+1}`;
-      const assetNo = `${t.id.replace(/^t_/,'').toUpperCase()}-DEMO-${si+1}`;
-      const lastDate = dateOffset(demo.dueIn - (t.frequencyDays||30));
-      const fieldValues = {};
-
-      (t.assetFields||[]).forEach(f=>{
-        if(f.key==='assetNo') fieldValues[f.key] = assetNo;
-        else if(f.key==='department') fieldValues[f.key] = 'Electrical Maintenance';
-        else if(f.key==='area') fieldValues[f.key] = ['Main Plant','Turbine Area','Switchyard','Boiler Area'][ti%4];
-        else if(f.key==='contractor') fieldValues[f.key] = person.contractorName;
-        else fieldValues[f.key] = `Demo ${f.label}`;
-      });
-
-      STATE.assets.push({
-        id:assetId, templateId:t.id,
-        createdOn:isoDate(dateOffset(-(t.frequencyDays||30))),
-        fieldValues
-      });
-
-      const answers = (t.checklistItems||[]).map((it, idx)=>{
-        let answer = 'Pass';
-        if(it.responseType==='number') answer = String(10 + idx*5);
-        else if(it.responseType==='yes_no_na') answer = 'Yes';
-        else if(it.responseType==='pass_fail') answer = 'Pass';
-        else if(it.responseType==='rating_1_5') answer = '5';
-        return {
-          itemNo:it.no,
-          description:it.description,
-          answer,
-          remark: demo.label==='OVERDUE' && idx===0 ? 'Demo overdue item — follow-up required.' : ''
-        };
-      });
-
-      STATE.inspections.push({
-        id:`demo_manual_insp_${batch}_${t.id}_${si+1}`,
-        assetId, templateId:t.id,
-        date:isoDate(lastDate),
-        department:'Electrical Maintenance',
-        area:fieldValues.area||'Main Plant',
-        contractor:fieldValues.contractor||person.contractorName,
-        contractorName:person.contractorName,
-        inspector:person.inspector,
-        observations: demo.label==='OVERDUE'
-          ? 'Demo record: inspection follow-up is overdue.'
-          : demo.label==='DUE SOON'
-            ? 'Demo record: next inspection is due soon.'
-            : 'Demo record: inspection completed satisfactorily.',
-        correctiveActions: demo.label==='OVERDUE' ? 'Schedule inspection and close pending observation.' : '',
-        answers,
-        inspectorSignature:null, inspectorSigDims:null,
-        contractorSignature:null, contractorSigDims:null,
-        photo:null, photoDims:null, oneDriveUrl:''
-      });
-    });
-  });
-
-  saveState();
-  toast('Demo checklist data loaded successfully.');
-  return true;
-}
-
-// Manually loads non-destructive demo data for Temporary Electrical Connection.
-// Creates one Pending, one Issued/overdue (due for removal), and one Closed record.
-function loadDemoTempConnectionData(){
-  if((STATE.tempConnections||[]).some(r=>String(r.id||'').indexOf('demo_tc_')===0)){
-    toast('Demo temporary connection data is already loaded.');
-    return false;
-  }
-
-  const today = new Date();
-  const isoDate = d => {
-    const x = new Date(d);
-    const y = x.getFullYear();
-    const m = String(x.getMonth()+1).padStart(2,'0');
-    const day = String(x.getDate()).padStart(2,'0');
-    return `${y}-${m}-${day}`;
-  };
-  const offset = days => {
-    const d = new Date(today);
-    d.setDate(d.getDate()+days);
-    return isoDate(d);
-  };
-
-  STATE.tempConnections = STATE.tempConnections || [];
-  const batch = Date.now();
-  const common = {
-    supplyType:'3 Phase',
-    purposes:['Area illumination'],
-    purposeOther:'',
-    requirement:'Demo temporary electrical supply for site work',
-    declared:true,
-    technicianName:'Suresh Kumar',
-    checklist:{board:'OK', joints:'OK', ir:'OK', elcb:'OK', earthing:'OK'},
-    rejectReason:''
-  };
-
-  const demoRows = [
-    {
-      suffix:'pending', location:'Demo Main Plant – Boiler Area', department:'EEMG',
-      applicantName:'Demo Applicant 1', designation:'Engineer', empNo:'DEMO-001',
-      forwarding:'Demo Forwarding Officer',
-      periodFrom:offset(-2), periodTo:offset(12), status:'Pending',
-      slNo:'', issuedAt:'', connectionDate:''
-    },
-    {
-      suffix:'overdue', location:'Demo Turbine Area – Bay 3', department:'C&M',
-      applicantName:'Demo Applicant 2', designation:'Supervisor', empNo:'DEMO-002',
-      forwarding:'Demo Forwarding Officer',
-      periodFrom:offset(-18), periodTo:offset(-2), status:'Issued',
-      slNo:'TC-DEMO-0001', issuedAt:new Date(today.getTime()-16*86400000).toISOString(),
-      connectionDate:offset(-15)
-    },
-    {
-      suffix:'closed', location:'Demo Switchyard – Panel Area', department:'EEMG',
-      applicantName:'Demo Applicant 3', designation:'Engineer', empNo:'DEMO-003',
-      forwarding:'Demo Forwarding Officer',
-      periodFrom:offset(-30), periodTo:offset(-20), status:'Closed',
-      slNo:'TC-DEMO-0002', issuedAt:new Date(today.getTime()-29*86400000).toISOString(),
-      connectionDate:offset(-28)
-    }
-  ];
-
-  demoRows.forEach(row=>{
-    STATE.tempConnections.push({
-      id:`demo_tc_${batch}_${row.suffix}`,
-      location:row.location,
-      supplyType:common.supplyType,
-      periodFrom:row.periodFrom,
-      periodTo:row.periodTo,
-      purposes:common.purposes,
-      purposeOther:common.purposeOther,
-      requirement:common.requirement,
-      applicantName:row.applicantName,
-      designation:row.designation,
-      empNo:row.empNo,
-      department:row.department,
-      forwarding:row.forwarding,
-      declared:true,
-      status:row.status,
-      submittedAt:new Date(today.getTime()-20*86400000).toISOString(),
-      slNo:row.slNo,
-      issuedAt:row.issuedAt,
-      technicianName:common.technicianName,
-      connectionDate:row.connectionDate,
-      checklist:{...common.checklist},
-      rejectReason:''
-    });
-  });
-
-  saveState();
-  toast('Demo temporary connection data loaded successfully.');
-  return true;
-}
-
-// Removes every demo record created by loadDemoChecklistData()/seedDemoChecklistData()
-// and loadDemoTempConnectionData(), identified by their 'demo_' / 'demo_tc_' id prefixes.
-// Real assets, inspections, and TC requests are left untouched.
-function removeDemoData(){
-  const isDemoAsset = a => String(a && a.id || '').indexOf('demo_')===0;
-  const isDemoInspection = i => String(i && i.id || '').indexOf('demo_')===0
-    || (i && isDemoAsset({id:i.assetId}));
-  const isDemoTC = r => String(r && r.id || '').indexOf('demo_tc_')===0;
-
-  const assetCountBefore = (STATE.assets||[]).length;
-  const inspCountBefore = (STATE.inspections||[]).length;
-  const tcCountBefore = (STATE.tempConnections||[]).length;
-
-  STATE.assets = (STATE.assets||[]).filter(a=>!isDemoAsset(a));
-  STATE.inspections = (STATE.inspections||[]).filter(i=>!isDemoInspection(i));
-  STATE.tempConnections = (STATE.tempConnections||[]).filter(r=>!isDemoTC(r));
-
-  const removed = (assetCountBefore-STATE.assets.length)
-    + (inspCountBefore-STATE.inspections.length)
-    + (tcCountBefore-STATE.tempConnections.length);
-
-  if(removed===0){
-    toast('No demo data found to remove.');
-    return false;
-  }
-
-  saveState();
-  toast('Demo data removed successfully.');
-  return true;
-}
-
-// Throws on failure (instead of silently swallowing it) so callers that just did
-// STATE.<array>.push(record) can undo that push and let the user retry cleanly, rather
-// than the record silently existing in memory but never actually being persisted.
 function saveState(){
-  const json = JSON.stringify(STATE);
-  try{
-    localStorage.setItem(LS_KEY, json);
-    // Single rolling backup (overwritten every save) instead of one-per-day — gives a
-    // recovery copy without the unbounded growth that caused the quota error above.
-    try{ localStorage.setItem(LS_BACKUP_KEY, json); }catch(e){ /* backup is best-effort; main save above already succeeded */ }
-  }catch(err){
-    const isQuotaError = err && (err.name==='QuotaExceededError' || err.name==='NS_ERROR_DOM_QUOTA_REACHED' || err.code===22);
-    if(isQuotaError){
-      // Free whatever we can and retry once before giving up.
-      try{ localStorage.removeItem(LS_BACKUP_KEY); }catch(e){}
-      try{
-        localStorage.setItem(LS_KEY, json);
-      }catch(err2){
-        const sizeMb = (json.length/1024/1024).toFixed(1);
-        const e = new Error('Browser storage is full (this data is ~' + sizeMb + ' MB). Photos and signatures are usually the cause — try deleting some older inspections from the asset history to free up space, or use a device/browser with more free storage.');
-        e.name = 'QuotaExceededError';
-        throw e;
-      }
-    } else {
-      throw err;
-    }
-  }
-  if(msalInstance && isOneDriveConnected()){
-    syncStateToOneDrive(json).catch(()=>{ /* offline/error — localStorage backup already saved */ });
-  } else if(CONFIG.GAS_URL){
+  localStorage.setItem(LS_KEY, JSON.stringify(STATE));
+  localStorage.setItem(LS_KEY + '_backup_' + new Date().toISOString().slice(0,10), JSON.stringify(STATE));
+  if(CONFIG.GAS_URL){
     fetch(CONFIG.GAS_URL, {
       method:'POST',
-      body: new URLSearchParams({ data: json })
+      body: new URLSearchParams({ data: JSON.stringify(STATE) })
     }).catch(()=>{ /* offline — localStorage backup already saved */ });
   }
 }
@@ -1237,13 +496,6 @@ function el(tag, attrs, children){
   return node;
 }
 function clear(node){ while(node.firstChild) node.removeChild(node.firstChild); }
-
-// Shared footer credit shown at the bottom of every page (including login).
-function siteCopyright(){
-  return el('div', {class:'site-copyright', style:'text-align:center; padding:10px 0; color:#b3b9c2; font-size:12px;'}, [
-    '© Amit Nayak, Emp. no. 102218'
-  ]);
-}
 
 // Builds a set of CSS Grid "rows" (header + data) that all share the exact same
 // grid-template-columns string. Because every row is an independent grid using the
@@ -1269,48 +521,6 @@ function gridTable(columns, rows, opts){
   container.appendChild(buildRow(columns.map(c=>c.label), true));
   rows.forEach(r=> container.appendChild(buildRow(r, false)));
   return container;
-}
-
-// Renders a sortable gridTable into `wrap` (clearing it first) and re-renders
-// on every header click. Any column with a `sort` accessor gets a clickable
-// header + sort-direction icon; columns without `sort` are plain labels.
-//   wrap        — container element to render into (its contents are replaced)
-//   columns     — [{label, width, align, sort:(item)=>comparable}]
-//   data        — array of underlying data items (not yet turned into cells)
-//   rowBuilder  — (item) => array of cell contents, one per column
-//   opts.initialSortIdx / opts.initialSortDir (1 asc, -1 desc) / opts.dividers
-function renderSortableTable(wrap, columns, data, rowBuilder, opts){
-  opts = opts || {};
-  let sortIdx = opts.initialSortIdx != null ? opts.initialSortIdx : null;
-  let sortDir = opts.initialSortDir || 1;
-  function draw(){
-    let items = data.slice();
-    if(sortIdx != null && columns[sortIdx] && columns[sortIdx].sort){
-      const getVal = columns[sortIdx].sort;
-      items.sort((a,b)=>{
-        const va = getVal(a), vb = getVal(b);
-        if(va < vb) return -1 * sortDir;
-        if(va > vb) return 1 * sortDir;
-        return 0;
-      });
-    }
-    const headerLabels = columns.map((c,i)=>{
-      if(!c.sort) return c.label;
-      const active = sortIdx === i;
-      const icon = active ? (sortDir===1 ? 'bx-sort-up' : 'bx-sort-down') : 'bx-sort-alt-2';
-      return el('span', {class:'inline-flex items-center gap-1 cursor-pointer select-none', onclick:()=>{
-        if(sortIdx===i) sortDir = -sortDir; else { sortIdx = i; sortDir = 1; }
-        draw();
-      }}, [c.label, el('i', {class:'bx '+icon, style:'font-size:.9rem; opacity:'+(active?'1':'.4')+';'})]);
-    });
-    clear(wrap);
-    wrap.appendChild(gridTable(
-      columns.map((c,i)=>({label:headerLabels[i], width:c.width, align:c.align})),
-      items.map(rowBuilder),
-      {dividers:opts.dividers}
-    ));
-  }
-  draw();
 }
 
 function toast(msg, opts){
@@ -1344,4 +554,1670 @@ function requireRole(min, cb){
 }
 function requireAdmin(cb){ requireRole('admin', cb); } // kept for readability at call sites
 
-const LOGIN_BG_DATA_URL = 'data:image/jpeg;base64,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
+function renderLogin(){
+  const app = document.getElementById('app');
+  clear(app);
+  const userInput = el('input', {placeholder:'Username', autocomplete:'username'});
+  const passInput = el('input', {type:'password', placeholder:'Password', autocomplete:'current-password'});
+  const err = el('div', {class:'text-red-600 text-xs mt-1 hidden'}, ['Incorrect username or password.']);
+
+  function attempt(){
+    const match = CONFIG.USERS.find(u=>u.username===userInput.value.trim() && u.password===passInput.value);
+    if(match){
+      sessionStorage.setItem('ucim_user', JSON.stringify({username:match.username, role:match.role, label:match.label}));
+      loadState();
+      location.hash = '/';
+      render();
+    } else { err.classList.remove('hidden'); }
+  }
+
+  const roleCard = (role,label,desc)=> el('button', {type:'button', class:'card p-3 text-left hover:shadow-md transition w-full', onclick:()=>{
+    const u = CONFIG.USERS.find(x=>x.role===role);
+    userInput.value = u.username; passInput.value = u.password; attempt();
+  }}, [
+    el('div', {class:'flex items-center justify-between'}, [
+      el('span', {class:'font-head font-bold text-sm'}, [label]),
+      el('span', {class:'role-chip role-'+role}, [role])
+    ]),
+    el('div', {class:'text-xs text-slate-400 mt-1'}, [desc])
+  ]);
+
+  const box = el('div', {class:'w-full max-w-md'}, [
+    el('div', {class:'text-center mb-6'}, [
+      el('div', {class:'w-12 h-12 rounded-xl flex items-center justify-center text-white font-head font-bold text-lg mx-auto mb-3', style:'background:#696cff;'}, ['✓']),
+      el('h1', {class:'font-head text-xl font-extrabold'}, ['Checklist & Inspection Manager']),
+      el('p', {class:'text-sm text-slate-500 mt-1'}, ['Sign in to continue'])
+    ]),
+    el('div', {class:'card p-6 space-y-3'}, [
+      labeled('Username', userInput),
+      labeled('Password', passInput),
+      err,
+      el('button', {class:'btn btn-primary w-full justify-center', onclick:attempt}, ['Sign in'])
+    ]),
+    el('div', {class:'mt-5'}, [
+      el('div', {class:'text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2'}, ['Quick demo sign-in']),
+      el('div', {class:'grid grid-cols-3 gap-2'}, [
+        roleCard('viewer','Viewer','View only'),
+        roleCard('user','User','Create & edit'),
+        roleCard('admin','Admin','Full access')
+      ])
+    ])
+  ]);
+  const wrap = el('div', {class:'min-h-screen flex items-center justify-center p-4 page-fade'}, [box]);
+  passInput.addEventListener('keydown', e=>{ if(e.key==='Enter') attempt(); });
+  app.appendChild(wrap);
+}
+
+/* ============================================================
+   DUE-DATE / STATUS HELPERS
+   ============================================================ */
+function lastInspectionDate(assetId){
+  const rows = STATE.inspections.filter(i=>i.assetId===assetId).sort((a,b)=> new Date(b.date)-new Date(a.date));
+  return rows.length ? rows[0].date : null;
+}
+function nextDueDate(asset, tmpl){
+  const last = lastInspectionDate(asset.id);
+  const base = last ? new Date(last) : new Date(asset.createdOn);
+  const due = new Date(base);
+  due.setDate(due.getDate() + (tmpl.frequencyDays||30));
+  return due;
+}
+function statusFor(asset, tmpl){
+  const due = nextDueDate(asset, tmpl);
+  const now = new Date();
+  const daysLeft = Math.ceil((due - now) / 86400000);
+  if(daysLeft < 0) return {label:`Overdue ${Math.abs(daysLeft)}d`, cls:'status-danger', daysLeft};
+  if(daysLeft <= (tmpl.reminderLeadDays||5)) return {label:`Due in ${daysLeft}d`, cls:'status-warn-30', daysLeft};
+  return {label:`OK · due in ${daysLeft}d`, cls:'status-ok', daysLeft};
+}
+function pill(status){ return el('span', {class:'pill '+status.cls}, [status.label]); }
+function fmtDate(d){ if(!d) return '—'; return new Date(d).toLocaleDateString('en-GB', {day:'2-digit', month:'short', year:'numeric'}); }
+
+/* ============================================================
+   ROUTER
+   ============================================================ */
+const routes = {};
+function route(pattern, handler){ routes[pattern] = handler; }
+function navigate(hash){ location.hash = hash; }
+function currentRoute(){
+  const hash = location.hash.slice(1) || '/';
+  for(const pattern in routes){
+    const keys = [];
+    const rx = new RegExp('^' + pattern.replace(/:[^/]+/g, m=>{ keys.push(m.slice(1)); return '([^/]+)'; }) + '$');
+    const m = hash.match(rx);
+    if(m){
+      const params = {};
+      keys.forEach((k,i)=> params[k] = decodeURIComponent(m[i+1]));
+      return { handler: routes[pattern], params };
+    }
+  }
+  return null;
+}
+window.addEventListener('hashchange', render);
+window.addEventListener('DOMContentLoaded', ()=>{
+  if(!currentUser()){ renderLogin(); return; }
+  loadState(); render();
+});
+
+/* ============================================================
+   LAYOUT SHELL
+   ============================================================ */
+function shell(contentNode){
+  const app = document.getElementById('app');
+  clear(app);
+  const hash = location.hash.slice(1) || '/';
+  const user = currentUser();
+  if(!user){ renderLogin(); return; }
+
+  const menuItem = (href, icon, label)=> el('a', {
+    href:'#'+href,
+    class:'sneat-menu-link'+(hash===href?' active':'')
+  }, [ el('i', {class:'bx '+icon}), el('span', {}, [label]) ]);
+
+  const menuItems = [
+    menuItem('/', 'bx-home-circle', 'Dashboard'),
+    menuItem('/checklist', 'bx-list-check', 'Checklist'),
+    hasRole('admin') ? menuItem('/templates', 'bx-cog', 'Templates') : null,
+    menuItem('/reminders', 'bx-bell', 'Reminders'),
+    menuItem('/sync', 'bx-refresh', 'Sync')
+  ];
+
+  const tempConnMenuItems = [
+    menuItem('/temp-connection', 'bx-plug', 'New Request'),
+    hasRole('user') ? menuItem('/temp-connection/approve', 'bx-check-double', 'Approver') : null,
+    menuItem('/temp-connection/register', 'bx-table', 'Register')
+  ];
+
+  const sidebarId = 'sneat-sidebar-el';
+  const sidebar = el('aside', {class:'sneat-sidebar', id:sidebarId}, [
+    el('div', {class:'sneat-brand'}, [
+      el('div', {class:'brand-icon'}, [el('i', {class:'bx bx-check-shield'})]),
+      el('div', {}, [
+        el('div', {class:'brand-text'}, ['Checklist Manager']),
+        el('div', {class:'brand-sub'}, ['Inspection & Assets'])
+      ])
+    ]),
+    el('div', {style:'border-top:1px solid var(--line)'}),
+    el('nav', {class:'sneat-menu'}, [
+      el('div', {class:'sneat-menu-label'}, ['Main']),
+      ...menuItems,
+      el('div', {class:'sneat-menu-label'}, ['Temporary Electrical Connection']),
+      ...tempConnMenuItems
+    ])
+  ]);
+
+  const mobileToggle = el('button', {class:'btn btn-ghost d-md-none', style:'padding:.4rem .6rem;', onclick:()=>{
+    document.getElementById(sidebarId).classList.toggle('open');
+  }}, [el('i', {class:'bx bx-menu', style:'font-size:1.3rem;'})]);
+
+  const searchBox = el('div', {style:'position:relative; width:280px;'});
+  const searchInput = el('input', {placeholder:'Search templates or assets…', class:'d-none d-sm-block'});
+  const searchResults = el('div', {class:'card', style:'position:absolute; top:calc(100% + 6px); left:0; right:0; z-index:60; display:none; max-height:360px; overflow-y:auto; padding:.4rem;'});
+  searchBox.appendChild(searchInput);
+  searchBox.appendChild(searchResults);
+
+  function globalSearch(q){
+    q = q.trim().toLowerCase();
+    clear(searchResults);
+    if(!q){ searchResults.style.display = 'none'; return; }
+    const tMatches = STATE.templates.filter(t=> t.name.toLowerCase().includes(q) || (t.category||'').toLowerCase().includes(q)).slice(0,5);
+    const aMatches = STATE.assets.filter(a=> JSON.stringify(a.fieldValues).toLowerCase().includes(q)).slice(0,6);
+    if(!tMatches.length && !aMatches.length){
+      searchResults.appendChild(el('div', {class:'text-sm text-slate-400 p-3'}, ['No matches for "'+q+'".']));
+      searchResults.style.display = 'block';
+      return;
+    }
+    if(tMatches.length){
+      searchResults.appendChild(el('div', {class:'text-xs font-semibold text-slate-400 uppercase px-2 py-1'}, ['Templates']));
+      tMatches.forEach(t=>{
+        searchResults.appendChild(el('a', {href:'#/assets/'+t.id, class:'block px-2 py-2 rounded', style:'display:block;', onclick:()=>{ searchInput.value=''; searchResults.style.display='none'; }}, [
+          el('div', {class:'text-sm font-medium'}, [t.name]),
+          el('div', {class:'text-xs text-slate-400'}, [t.category||'General'])
+        ]));
+      });
+    }
+    if(aMatches.length){
+      searchResults.appendChild(el('div', {class:'text-xs font-semibold text-slate-400 uppercase px-2 py-1 mt-1'}, ['Assets']));
+      aMatches.forEach(a=>{
+        const t = STATE.templates.find(x=>x.id===a.templateId);
+        const label = t ? (a.fieldValues[t.assetFields[0].key] || a.id) : a.id;
+        searchResults.appendChild(el('a', {href: t ? '#/assets/'+t.id+'/'+a.id : '#/checklist', class:'block px-2 py-2 rounded', style:'display:block;', onclick:()=>{ searchInput.value=''; searchResults.style.display='none'; }}, [
+          el('div', {class:'text-sm font-medium'}, [String(label)]),
+          el('div', {class:'text-xs text-slate-400'}, [t ? t.name : ''])
+        ]));
+      });
+    }
+    searchResults.style.display = 'block';
+  }
+  searchInput.addEventListener('input', ()=> globalSearch(searchInput.value));
+  searchInput.addEventListener('focus', ()=>{ if(searchInput.value) globalSearch(searchInput.value); });
+  window._activeSearchBox = searchBox;
+  window._activeSearchResults = searchResults;
+  if(!window._searchOutsideClickBound){
+    window._searchOutsideClickBound = true;
+    document.addEventListener('click', (e)=>{
+      if(window._activeSearchBox && !window._activeSearchBox.contains(e.target) && window._activeSearchResults){
+        window._activeSearchResults.style.display = 'none';
+      }
+    });
+  }
+
+  const navbar = el('div', {class:'sneat-navbar'}, [
+    el('div', {class:'px-4 sm:px-6 py-3 flex flex-wrap items-center gap-3 justify-between'}, [
+      el('div', {class:'flex items-center gap-3'}, [
+        mobileToggle,
+        searchBox
+      ]),
+      el('div', {class:'flex items-center gap-3'}, [
+        el('div', {class:'text-right'}, [
+          el('div', {class:'text-sm font-semibold', style:'color:var(--ink); line-height:1.1;'}, [user.username]),
+          el('span', {class:'role-chip role-'+user.role}, [user.role])
+        ]),
+        el('div', {style:'width:38px;height:38px;border-radius:50%;background:#ebebfe;color:#696cff;display:flex;align-items:center;justify-content:center;font-weight:700;'}, [user.username.slice(0,1).toUpperCase()]),
+        el('button', {class:'btn btn-ghost', style:'padding:.4rem .8rem;', onclick:logout}, [el('i', {class:'bx bx-log-out'}), 'Log out'])
+      ])
+    ])
+  ]);
+
+  const main = el('div', {class:'sneat-main'}, [
+    navbar,
+    el('div', {class:'page-wrap mx-auto px-4 sm:px-6 py-6 page-fade'}, [contentNode]),
+    el('div', {class:'page-wrap mx-auto px-4 sm:px-6 pb-6 text-center'}, [
+      el('span', {class:'text-xs text-slate-300'}, ['build '+CONFIG.BUILD_ID])
+    ])
+  ]);
+
+  app.appendChild(sidebar);
+  app.appendChild(main);
+}
+
+function pageHeader(title, subtitle, actions){
+  return el('div', {class:'flex flex-wrap items-start justify-between gap-3 mb-6'}, [
+    el('div', {}, [
+      el('h1', {class:'font-head text-2xl font-extrabold text-slate-900'}, [title]),
+      subtitle ? el('p', {class:'text-sm text-slate-500 mt-1'}, [subtitle]) : null
+    ]),
+    el('div', {class:'flex gap-2'}, actions||[])
+  ]);
+}
+
+/* ============================================================
+   PAGE: DASHBOARD  (#/) — bar + pie charts across all assets
+   ============================================================ */
+let _chartInstances = [];
+function destroyCharts(){ _chartInstances.forEach(c=>c.destroy()); _chartInstances = []; }
+
+route('/', ()=>{
+  destroyCharts();
+
+  // Assets per checklist group (bar)
+  const groupCounts = {};
+  GROUP_ORDER.concat(['Other']).forEach(g=> groupCounts[g]=0);
+  STATE.templates.forEach(t=>{
+    const n = STATE.assets.filter(a=>a.templateId===t.id).length;
+    groupCounts[groupOf(t)] = (groupCounts[groupOf(t)]||0) + n;
+  });
+  const groupLabels = Object.keys(groupCounts).filter(g=> g!=='Other' || groupCounts[g]>0);
+
+  // Status distribution across all assets (pie)
+  let ok=0, dueSoon=0, overdue=0;
+  STATE.templates.forEach(t=>{
+    STATE.assets.filter(a=>a.templateId===t.id).forEach(a=>{
+      const s = statusFor(a,t);
+      if(s.cls==='status-danger') overdue++; else if(s.cls==='status-warn-30') dueSoon++; else ok++;
+    });
+  });
+  const totalAssets = ok+dueSoon+overdue;
+
+  const barCanvas = el('canvas');
+  const pieCanvas = el('canvas');
+  const barWrap = el('div', {style:'height:220px'}, [barCanvas]);
+  const pieWrap = el('div', {style:'height:220px'}, [pieCanvas]);
+
+  const statCards = el('div', {class:'grid sm:grid-cols-4 gap-4 mb-6'}, [
+    statCard('Templates', STATE.templates.length, 'status-none'),
+    statCard('Total assets', totalAssets, 'status-none'),
+    statCard('Due soon', dueSoon, 'status-warn-30'),
+    statCard('Overdue', overdue, 'status-danger')
+  ]);
+
+  shell(el('div', {}, [
+    pageHeader('Dashboard', 'Live overview of every checklist group, asset count, and due-date health.', [
+      hasRole('user') ? el('a', {href:'#/checklist', class:'btn btn-primary'}, ['Go to Checklist']) : null
+    ]),
+    statCards,
+    el('div', {class:'grid lg:grid-cols-2 gap-5'}, [
+      el('div', {class:'card p-5'}, [
+        el('h3', {class:'font-head font-bold mb-3 text-sm'}, ['Assets by checklist group']),
+        barWrap
+      ]),
+      el('div', {class:'card p-5'}, [
+        el('h3', {class:'font-head font-bold mb-3 text-sm'}, ['Due-date status across all assets']),
+        totalAssets ? pieWrap : el('div', {class:'text-slate-400 text-sm py-16 text-center'}, ['No assets registered yet.'])
+      ])
+    ])
+  ]));
+
+  _chartInstances.push(new Chart(barCanvas, {
+    type:'bar',
+    data:{ labels: groupLabels, datasets:[{ label:'Assets', data: groupLabels.map(g=>groupCounts[g]), backgroundColor:'#696cff', borderRadius:6, maxBarThickness:36 }] },
+    options:{ responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{ y:{ beginAtZero:true, ticks:{ precision:0 } } } }
+  }));
+  if(totalAssets){
+    _chartInstances.push(new Chart(pieCanvas, {
+      type:'pie',
+      data:{ labels:['OK','Due soon','Overdue'], datasets:[{ data:[ok,dueSoon,overdue], backgroundColor:['#71dd37','#ffab00','#ff3e1d'] }] },
+      options:{ responsive:true, maintainAspectRatio:false, plugins:{legend:{position:'bottom', labels:{boxWidth:12, font:{size:11}}}} }
+    }));
+  }
+});
+function statCard(label, value, cls){
+  return el('div', {class:'card p-4'}, [
+    el('div', {class:'text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1'}, [label]),
+    el('div', {class:'flex items-center gap-2'}, [
+      el('span', {class:'font-head text-2xl font-extrabold'}, [String(value)]),
+      cls!=='status-none' ? el('span', {class:'pill '+cls}, [' ']) : null
+    ])
+  ]);
+}
+
+/* ============================================================
+   PAGE: CHECKLIST  (#/checklist) — grouped tabular arrangement:
+   Ladders / ELCB-RCD / Mobile Crane / Electrical Tools /
+   Welding Machines / PPEs
+   ============================================================ */
+route('/checklist', ()=>{
+  const groups = {};
+  GROUP_ORDER.forEach(g=> groups[g]=[]);
+  STATE.templates.forEach(t=>{
+    const g = groupOf(t);
+    if(!groups[g]) groups[g]=[];
+    groups[g].push(t);
+  });
+
+  const sections = Object.keys(groups).filter(g=>groups[g].length).map(g=>{
+    const rows = groups[g].map(t=>{
+      const assets = STATE.assets.filter(a=>a.templateId===t.id);
+      let overdue=0, dueSoon=0;
+      assets.forEach(a=>{ const s = statusFor(a,t); if(s.cls==='status-danger') overdue++; else if(s.cls==='status-warn-30') dueSoon++; });
+      return [
+        el('span', {class:'font-medium'}, [t.name]),
+        (t.frequencyDays||'—')+' days',
+        String(assets.length),
+        el('div', {class:'flex gap-1 flex-wrap'}, [
+          overdue ? el('span', {class:'pill status-danger'}, [overdue+' overdue']) : null,
+          dueSoon ? el('span', {class:'pill status-warn-30'}, [dueSoon+' due soon']) : null,
+          (!overdue && !dueSoon) ? el('span', {class:'pill status-ok'}, ['All OK']) : null
+        ]),
+        el('div', {class:'flex gap-2 justify-end'}, [
+          el('a', {href:'#/assets/'+t.id, class:'btn btn-ghost'}, ['Open assets']),
+          hasRole('admin') ? el('a', {href:'#/templates/'+t.id+'/builder', class:'btn btn-ghost'}, ['Edit template']) : null
+        ])
+      ];
+    });
+    const table = gridTable(
+      [
+        {label:'Checklist', width:'34%'},
+        {label:'Frequency', width:'14%'},
+        {label:'Assets', width:'12%'},
+        {label:'Status', width:'20%'},
+        {label:'', width:'20%', align:'right'}
+      ],
+      rows
+    );
+    return el('div', {class:'mb-8', id:'grp-'+slugify(g)}, [
+      el('div', {class:'group-banner'}, [el('span', {class:'font-head font-bold', style:'color:#696cff;'}, [g]), el('span', {class:'text-xs text-slate-400 ml-2'}, [groups[g].length+' checklist type(s)'])]),
+      el('div', {class:'card overflow-x-auto'}, [table])
+    ]);
+  });
+
+  const quickNav = el('div', {class:'card p-3 mb-6 flex flex-wrap gap-2 items-center'}, [
+    el('span', {class:'text-xs font-semibold text-slate-400 uppercase tracking-wide mr-1'}, ['Jump to:']),
+    ...Object.keys(groups).filter(g=>groups[g].length).map(g=>
+      el('button', {class:'nav-link', style:'background:#f1f5f9', onclick:()=>{
+        const target = document.getElementById('grp-'+slugify(g));
+        if(target) target.scrollIntoView({behavior:'smooth', block:'start'});
+      }}, [g + ' (' + groups[g].length + ')'])
+    )
+  ]);
+
+  shell(el('div', {}, [
+    pageHeader('Checklist', 'All checklist types grouped by equipment category.', [
+      hasRole('admin') ? el('button', {class:'btn btn-primary', onclick:()=>requireRole('admin', createTemplate)}, ['+ New Template']) : null
+    ]),
+    quickNav,
+    ...sections
+  ]));
+});
+
+/* ============================================================
+   PAGE: REMINDERS  (#/reminders)
+   ============================================================ */
+route('/reminders', ()=>{
+  const rows = [];
+  STATE.templates.forEach(t=>{
+    STATE.assets.filter(a=>a.templateId===t.id).forEach(a=>{
+      const s = statusFor(a,t);
+      if(s.cls!=='status-ok') rows.push({t,a,s});
+    });
+  });
+  rows.sort((x,y)=>x.s.daysLeft - y.s.daysLeft);
+  const tbl = gridTable(
+    [
+      {label:'Status', width:'18%'},
+      {label:'Template', width:'30%'},
+      {label:'Asset', width:'20%'},
+      {label:'Due date', width:'16%'},
+      {label:'', width:'16%', align:'right'}
+    ],
+    rows.map(r=> [
+      pill(r.s),
+      r.t.name,
+      el('span',{class:'font-medium'},[r.a.fieldValues[r.t.assetFields[0].key] || r.a.id]),
+      fmtDate(nextDueDate(r.a, r.t)),
+      hasRole('user') ? el('button', {class:'btn btn-primary', onclick:()=>requireRole('user', ()=>openInspectionModal(r.t, r.a))}, ['Inspect now']) : el('span',{class:'text-slate-400 text-xs'},['view only'])
+    ])
+  );
+  shell(el('div', {}, [
+    pageHeader('Reminders', 'Everything due soon or overdue, across every template.'),
+    rows.length ? el('div', {class:'card overflow-x-auto'}, [tbl]) :
+      el('div', {class:'card p-8 text-center text-slate-400'}, ['Nothing due — everything is on track.']),
+    el('div', {class:'card p-4 mt-4 text-xs text-slate-500'}, [
+      'Automated email reminders run server-side once a day via the Apps Script time trigger described in apps_script.gs (Section 8 of the spec) — this in-app view is a live snapshot of the same due-date logic.'
+    ])
+  ]));
+});
+
+/* ============================================================
+   PAGE: SYNC  (#/sync)
+   ============================================================ */
+route('/sync', ()=>{
+  shell(el('div', {}, [
+    pageHeader('Sync', 'Force save, reload, or export your data.'),
+    el('div', {class:'card p-6 max-w-xl space-y-4'}, [
+      el('div', {}, [
+        el('div', {class:'font-semibold mb-1'}, ['Backend']),
+        el('div', {class:'text-sm text-slate-500'}, [CONFIG.GAS_URL ? 'Syncing to Google Apps Script: ' + CONFIG.GAS_URL : 'Offline mode — data lives in this browser\'s localStorage only. Set CONFIG.GAS_URL to enable Google Sheets sync + OneDrive uploads.'])
+      ]),
+      el('div', {class:'flex gap-2 flex-wrap'}, [
+        hasRole('user') ? el('button', {class:'btn btn-primary', onclick:()=>{ saveState(); toast('State saved.'); }}, ['Force Save']) : null,
+        hasRole('user') ? el('button', {class:'btn btn-ghost', onclick:()=>{ loadState(); render(); toast('State reloaded.'); }}, ['Force Reload']) : null,
+        el('button', {class:'btn btn-ghost', onclick:exportExcel}, ['Export to Excel (CSV bundle)']),
+        hasRole('admin') ? el('button', {class:'btn btn-danger', onclick:()=>requireRole('admin', ()=>{ if(confirm('Reset ALL data back to the seeded templates? This cannot be undone.')){ localStorage.removeItem(LS_KEY); loadState(); render(); toast('Data reset.'); } })}, ['Reset to seed data']) : null
+      ])
+    ])
+  ]));
+});
+
+/* ============================================================================
+   TEMPORARY ELECTRICAL CONNECTION MODULE
+   Integrated from the standalone NTPC Unchahar temp-connection frontend.
+   Data lives in STATE.tempConnections (localStorage, same as everything else
+   in this app) so a request submitted on "New Request" shows up immediately
+   on "Approver" and "Register" — no separate backend needed.
+   ============================================================================ */
+const TC_DEPARTMENTS = ['AHM','Ash Utilisation','AUTO BASE','BMD','C&I','C&M','CHEMISTRY','CIVIL','EEMG','EMD','ENVT. MGT.','FM','FQA','HR','IT','MEDICAL','MTP','OFS','OPERATION','PROJECT','SAFETY','TMD'];
+const TC_PURPOSES = ['Area illumination','Welding','Pump','Belt jointing machine','SR Machine Supply','Other'];
+const TC_CHECKLIST_ITEMS = [
+  { key:'board', label:'Extension board / SFU panel is in healthy condition' },
+  { key:'joints', label:'No loose connection — all joints properly insulated' },
+  { key:'ir', label:'Extension cable IR value checked and found OK' },
+  { key:'elcb', label:'ELCB provided (if applicable)' },
+  { key:'earthing', label:'Supply earthing is proper' }
+];
+function tcStatusPill(status){
+  const cls = status==='Issued' ? 'status-ok' : status==='Rejected' ? 'status-danger' : 'status-warn-30';
+  return el('span', {class:'pill '+cls}, [status]);
+}
+function tcNextSlNo(){
+  const n = STATE.tempConnections.filter(r=>r.slNo).length + 1;
+  return 'TC-' + String(n).padStart(4,'0');
+}
+
+/* ---- Page: New Request (#/temp-connection) ---- */
+route('/temp-connection', ()=>{
+  const locInput = el('input', {placeholder:'e.g. Unit-3 Boiler platform, Bay 4'});
+  const fromInput = el('input', {type:'date'});
+  const toInput = el('input', {type:'date'});
+  const reqInput = el('textarea', {rows:'2', placeholder:'e.g. 2 x 500W flood lights, 5 HP pump'});
+  const nameInput = el('input', {});
+  const designationInput = el('input', {});
+  const empNoInput = el('input', {});
+  const deptSelect = el('select', {}, [el('option',{value:''},['Select department…']), ...TC_DEPARTMENTS.map(d=>el('option',{value:d},[d]))]);
+  const forwardingInput = el('input', {});
+  const otherInput = el('input', {placeholder:'If Other — specify', style:'display:none; margin-top:.5rem;'});
+  const declareChk = el('input', {type:'checkbox'});
+  const errBox = el('div', {class:'text-sm', style:'color:var(--red); display:none;'});
+
+  let supplyType = '';
+  const supplyBtns = ['1 Phase','3 Phase'].map(s=>{
+    const b = el('button', {type:'button', class:'btn btn-ghost', onclick:()=>{
+      supplyType = s;
+      supplyBtns.forEach(x=>{ x.style.borderColor=''; x.style.background=''; x.style.color=''; });
+      b.style.borderColor='#696cff'; b.style.background='var(--sky-l)'; b.style.color='#696cff';
+    }}, [s]);
+    return b;
+  });
+
+  const purposeChecks = {};
+  const purposeRow = el('div', {class:'flex flex-wrap gap-2'}, TC_PURPOSES.map(p=>{
+    const cb = el('input', {type:'checkbox', value:p});
+    purposeChecks[p] = cb;
+    const label = el('label', {class:'btn btn-ghost', style:'cursor:pointer;'}, [cb, el('span',{style:'margin-left:.4rem;'},[p])]);
+    cb.addEventListener('change', ()=>{
+      label.style.borderColor = cb.checked ? '#696cff' : '';
+      label.style.background = cb.checked ? 'var(--sky-l)' : '';
+      otherInput.style.display = purposeChecks['Other'].checked ? 'block' : 'none';
+    });
+    return label;
+  }));
+
+  function submitRequest(){
+    errBox.style.display = 'none';
+    const purposes = TC_PURPOSES.filter(p=>purposeChecks[p].checked);
+    if(!locInput.value.trim() || !supplyType || !fromInput.value || !toInput.value || !purposes.length ||
+       !nameInput.value.trim() || !designationInput.value.trim() || !empNoInput.value.trim() || !deptSelect.value || !forwardingInput.value.trim()){
+      errBox.textContent = 'Please fill all required fields (marked *).'; errBox.style.display='block'; return;
+    }
+    if(!declareChk.checked){
+      errBox.textContent = 'Please agree to the declaration before submitting.'; errBox.style.display='block'; return;
+    }
+    const req = {
+      id: uid('tc'), location: locInput.value.trim(), supplyType,
+      periodFrom: fromInput.value, periodTo: toInput.value,
+      purposes, purposeOther: otherInput.value.trim(),
+      requirement: reqInput.value.trim(),
+      applicantName: nameInput.value.trim(), designation: designationInput.value.trim(),
+      empNo: empNoInput.value.trim(), department: deptSelect.value, forwarding: forwardingInput.value.trim(),
+      declared: true, status:'Pending', submittedAt: new Date().toISOString(),
+      slNo:'', issuedAt:'', technicianName:'', connectionDate:'', checklist:{}, rejectReason:''
+    };
+    STATE.tempConnections.push(req);
+    saveState();
+    let pdfNote = '';
+    try{ downloadPdf(generateTempConnectionPdf(req), `TempConnection_${req.location.replace(/[^a-z0-9]+/gi,'_')}.pdf`); }
+    catch(e){ pdfNote = ' (PDF generation failed — request was still saved.)'; }
+    renderConfirmation(req, pdfNote);
+  }
+
+  function renderConfirmation(req, pdfNote){
+    shell(el('div', {class:'max-w-lg mx-auto text-center card p-8'}, [
+      el('div', {class:'pill status-warn-30', style:'margin:0 auto 1rem; width:fit-content;'}, ['Pending review']),
+      el('h2', {class:'font-head text-xl font-bold mb-2'}, ['Request submitted']),
+      el('p', {class:'text-sm text-slate-500 mb-4'}, ['Your request for ', el('b',{},[req.location]), ' is now pending EMD review.' + pdfNote]),
+      el('div', {class:'flex gap-2 justify-center'}, [
+        el('a', {href:'#/temp-connection', class:'btn btn-primary'}, ['Submit another request'])
+      ])
+    ]));
+  }
+
+  shell(el('div', {}, [
+    pageHeader('Temporary Electrical Connection', 'Requisition — to be filled by the applicant. A PDF copy downloads automatically on submission.'),
+    el('div', {class:'card p-6 space-y-5 max-w-3xl'}, [
+      el('div', {}, [
+        el('div', {class:'font-head font-bold mb-3'}, ['Connection details']),
+        labeled('Area / location where connection is required *', locInput)
+      ]),
+      el('div', {class:'row2'}, [
+        el('div', {}, [el('label',{class:'field-label'},['Type of supply *']), el('div',{class:'flex gap-2'}, supplyBtns)]),
+        el('div', {}, [el('label',{class:'field-label'},['Time period *']), el('div',{class:'flex gap-2 items-center'}, [fromInput, el('span',{class:'text-slate-400 text-sm'},['to']), toInput])])
+      ]),
+      el('div', {}, [
+        el('label',{class:'field-label'},['Purpose of which supply is required *']),
+        purposeRow, otherInput
+      ]),
+      labeled('Please specify requirement (no. of light fittings / pump HP / amps)', reqInput),
+      el('div', {style:'border-top:1px solid var(--line)'}),
+      el('div', {class:'font-head font-bold'}, ['Applicant details']),
+      el('div', {class:'row2'}, [
+        labeled('Name of applicant *', nameInput), labeled('Designation *', designationInput)
+      ]),
+      el('div', {class:'row2'}, [
+        labeled('Employee no. *', empNoInput), labeled('Department *', deptSelect)
+      ]),
+      labeled('Forwarding officer / HOD name *', forwardingInput),
+      el('div', {style:'border-top:1px solid var(--line)'}),
+      el('div', {class:'font-head font-bold'}, ['Declaration']),
+      el('div', {class:'text-sm text-slate-500', style:'background:#f7f7f9; border-radius:.5rem; padding:1rem;'}, [
+        el('ul', {style:'margin:0; padding-left:1.1rem; line-height:1.6;'}, [
+          el('li',{},['I/We will ensure there is no unauthorised addition or alteration to the temporary supply that could increase load or create an unsafe condition.']),
+          el('li',{},['I/We will ensure connected equipment (welding machine, pump, etc.) is healthy and properly earthed.']),
+          el('li',{},['I/We will abide by electrical safety rules and ensure safe working on the temporary connection.']),
+          el('li',{},['I/We will inform EMD to disconnect immediately after work completion and will not leave the connection unattended.'])
+        ])
+      ]),
+      el('label', {style:'display:flex; align-items:center; gap:.5rem; font-size:.875rem;'}, [declareChk, 'I/We agree to the declaration above *']),
+      errBox,
+      el('div', {}, [el('button', {class:'btn btn-primary', onclick:submitRequest}, ['Submit request'])])
+    ])
+  ]));
+});
+
+/* ---- Page: Approver list (#/temp-connection/approve) ---- */
+route('/temp-connection/approve', ()=>{
+  if(!hasRole('user')){ toast('You need User access to review requests.'); navigate('/temp-connection/register'); return; }
+  const pending = STATE.tempConnections.filter(r=>r.status==='Pending').sort((a,b)=> new Date(a.submittedAt)-new Date(b.submittedAt));
+  const recent = STATE.tempConnections.filter(r=>r.status!=='Pending').sort((a,b)=> new Date(b.issuedAt||b.submittedAt)-new Date(a.issuedAt||a.submittedAt)).slice(0,8);
+
+  const pendingCards = pending.length ? pending.map(r=> el('div', {class:'card p-4 flex flex-wrap items-center justify-between gap-3 mb-3'}, [
+    el('div', {}, [
+      el('div', {class:'font-head font-bold'}, [r.location]),
+      el('div', {class:'text-xs text-slate-400 mt-1'}, [r.applicantName+' · '+r.supplyType+' · '+(r.purposes||[]).join(', ')]),
+      el('div', {class:'text-xs text-slate-400'}, ['Period: '+fmtDate(r.periodFrom)+' → '+fmtDate(r.periodTo)+' · Submitted '+fmtDate(r.submittedAt)])
+    ]),
+    el('a', {href:'#/temp-connection/approve/'+r.id, class:'btn btn-primary'}, ['Review →'])
+  ])) : [el('div', {class:'card p-8 text-center text-slate-400'}, ['Nothing pending — all caught up.'])];
+
+  const recentRows = recent.map(r=> [
+    r.location, r.applicantName, r.slNo||'—', tcStatusPill(r.status), r.issuedAt ? fmtDate(r.issuedAt) : fmtDate(r.submittedAt)
+  ]);
+
+  shell(el('div', {}, [
+    pageHeader('Temp. Connection — Approver', pending.length+' request(s) awaiting review.'),
+    ...pendingCards,
+    recent.length ? el('div', {class:'mt-8'}, [
+      el('h3', {class:'font-head font-bold mb-3 text-sm text-slate-400 uppercase tracking-wide'}, ['Recently decided']),
+      el('div', {class:'card overflow-x-auto'}, [gridTable(
+        [{label:'Location',width:'26%'},{label:'Applicant',width:'22%'},{label:'SL No.',width:'14%'},{label:'Status',width:'18%'},{label:'Date',width:'20%'}],
+        recentRows
+      )])
+    ]) : null
+  ]));
+});
+
+/* ---- Page: Approver detail / decision (#/temp-connection/approve/:id) ---- */
+route('/temp-connection/approve/:id', ({params})=>{
+  if(!hasRole('user')){ toast('You need User access to review requests.'); navigate('/temp-connection/register'); return; }
+  const req = STATE.tempConnections.find(r=>r.id===params.id);
+  if(!req){ navigate('/temp-connection/approve'); return; }
+
+  const summary = el('div', {class:'card p-5 space-y-1 text-sm'}, [
+    el('div', {class:'font-head font-bold text-base mb-2'}, [req.location]),
+    el('p', {}, [el('b',{},['Applicant: ']), req.applicantName+' ('+req.designation+')']),
+    el('p', {}, [el('b',{},['Employee no.: ']), req.empNo, '   ', el('b',{},['Department: ']), req.department]),
+    el('p', {}, [el('b',{},['Forwarding officer / HOD: ']), req.forwarding]),
+    el('p', {}, [el('b',{},['Type of supply: ']), req.supplyType]),
+    el('p', {}, [el('b',{},['Purpose: ']), (req.purposes||[]).join(', ') + (req.purposeOther ? ' ('+req.purposeOther+')' : '')]),
+    el('p', {}, [el('b',{},['Requirement: ']), req.requirement||'—']),
+    el('p', {}, [el('b',{},['Requested period: ']), fmtDate(req.periodFrom)+' → '+fmtDate(req.periodTo)]),
+    el('div', {class:'mt-2'}, [el('button', {class:'btn btn-ghost', onclick:()=>downloadPdf(generateTempConnectionPdf(req), `TempConnection_${req.location.replace(/[^a-z0-9]+/gi,'_')}.pdf`)}, ['Re-download PDF'])])
+  ]);
+
+  let decisionBlock;
+  if(req.status==='Pending'){
+    const toggles = {};
+    const toggleRows = TC_CHECKLIST_ITEMS.map(c=>{
+      const sw = el('button', {type:'button', class:'btn btn-ghost', style:'padding:.3rem .8rem;', onclick:()=>{
+        toggles[c.key] = !toggles[c.key];
+        sw.textContent = toggles[c.key] ? 'Yes' : 'No';
+        sw.style.background = toggles[c.key] ? 'var(--green-l)' : '';
+        sw.style.color = toggles[c.key] ? 'var(--green)' : '';
+      }}, ['No']);
+      toggles[c.key] = false;
+      return el('div', {class:'flex items-center justify-between py-2', style:'border-bottom:1px solid var(--line);'}, [el('span',{class:'text-sm'},[c.label]), sw]);
+    });
+    const slInput = el('input', {value: tcNextSlNo()});
+    const techInput = el('input', {placeholder:'Connection given by'});
+    const dateInput = el('input', {type:'date', value:new Date().toISOString().slice(0,10)});
+    const errBox = el('div', {class:'text-sm', style:'color:var(--red); display:none;'});
+
+    function issue(){
+      req.checklist = {...toggles};
+      req.slNo = slInput.value.trim() || tcNextSlNo();
+      req.technicianName = techInput.value.trim();
+      req.connectionDate = dateInput.value;
+      req.status = 'Issued';
+      req.issuedAt = new Date().toISOString();
+      saveState();
+      toast('Connection issued.');
+      navigate('/temp-connection/approve');
+    }
+    function reject(){
+      const reason = prompt('Reason for rejection (optional):') || '';
+      req.status = 'Rejected'; req.rejectReason = reason; req.issuedAt = new Date().toISOString();
+      saveState();
+      toast('Request rejected.');
+      navigate('/temp-connection/approve');
+    }
+
+    decisionBlock = el('div', {class:'card p-5 mt-4'}, [
+      el('div', {class:'font-head font-bold mb-2'}, ['Safety checklist']),
+      ...toggleRows,
+      el('div', {class:'grid sm:grid-cols-2 gap-4 mt-4'}, [
+        labeled('SL No. of temp. connection register', slInput),
+        labeled('Technician name', techInput)
+      ]),
+      labeled('Connection date', dateInput),
+      errBox,
+      el('div', {class:'flex gap-2 mt-4'}, [
+        el('button', {class:'btn btn-primary', onclick:issue}, ['Issue connection']),
+        el('button', {class:'btn btn-danger', onclick:reject}, ['Reject'])
+      ])
+    ]);
+  } else {
+    decisionBlock = el('div', {class:'card p-5 mt-4'}, [
+      el('div', {class:'font-head font-bold mb-2'}, ['Decision']),
+      tcStatusPill(req.status),
+      req.status==='Issued'
+        ? el('p', {class:'text-sm mt-2'}, [el('b',{},['SL No.: ']), req.slNo||'—', '   ', el('b',{},['Technician: ']), req.technicianName||'—', '   ', el('b',{},['Connection date: ']), fmtDate(req.connectionDate)])
+        : (req.rejectReason ? el('p', {class:'text-sm mt-2'}, [el('b',{},['Reason: ']), req.rejectReason]) : null)
+    ]);
+  }
+
+  shell(el('div', {}, [
+    el('a', {href:'#/temp-connection/approve', class:'btn btn-ghost mb-4'}, ['← Back to list']),
+    summary,
+    decisionBlock
+  ]));
+});
+
+/* ---- Page: Register (#/temp-connection/register) ---- */
+route('/temp-connection/register', ()=>{
+  const search = el('input', {placeholder:'Search location or applicant…', style:'width:280px;'});
+  const statusFilter = el('select', {style:'width:160px;'}, [
+    el('option',{value:''},['All statuses']), el('option',{value:'Pending'},['Pending']),
+    el('option',{value:'Issued'},['Issued']), el('option',{value:'Rejected'},['Rejected'])
+  ]);
+  const tableWrap = el('div');
+
+  function renderTable(){
+    const q = search.value.toLowerCase();
+    const st = statusFilter.value;
+    const rows = STATE.tempConnections.filter(r=>{
+      const matchQ = !q || (r.location||'').toLowerCase().includes(q) || (r.applicantName||'').toLowerCase().includes(q);
+      const matchSt = !st || r.status===st;
+      return matchQ && matchSt;
+    }).sort((a,b)=> new Date(b.submittedAt)-new Date(a.submittedAt));
+
+    clear(tableWrap);
+    if(!rows.length){ tableWrap.appendChild(el('div', {class:'card p-8 text-center text-slate-400'}, ['No matching requisitions.'])); return; }
+    const tblRows = rows.map(r=>[
+      r.slNo||'—', r.location, r.applicantName, r.department, (r.purposes||[]).join(', '),
+      fmtDate(r.submittedAt), r.status==='Issued' ? fmtDate(r.issuedAt) : '—', tcStatusPill(r.status)
+    ]);
+    tableWrap.appendChild(el('div', {class:'card overflow-x-auto'}, [gridTable(
+      [
+        {label:'SL No.', width:'10%'},{label:'Location', width:'20%'},{label:'Applicant', width:'16%'},
+        {label:'Dept.', width:'10%'},{label:'Purpose', width:'18%'},{label:'Submitted', width:'10%'},
+        {label:'Issue date', width:'8%'},{label:'Status', width:'8%'}
+      ],
+      tblRows
+    )]));
+  }
+  search.addEventListener('input', renderTable);
+  statusFilter.addEventListener('change', renderTable);
+  renderTable();
+
+  shell(el('div', {}, [
+    pageHeader('Temp. Connection — Register', STATE.tempConnections.length+' total requisition(s).', [
+      search, statusFilter
+    ]),
+    tableWrap
+  ]));
+});
+
+/* ---- PDF: Temporary Electrical Connection requisition ---- */
+function generateTempConnectionPdf(req){
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({unit:'pt', format:'a4'});
+  const pageW = doc.internal.pageSize.getWidth();
+  let y = 50;
+
+  doc.setFont('helvetica','bold'); doc.setFontSize(13);
+  const title = 'REQUISITION FOR TEMPORARY ELECTRICAL CONNECTION';
+  const tw = doc.getTextWidth(title);
+  doc.text(title, pageW/2, y, {align:'center'});
+  doc.line(pageW/2-tw/2, y+3, pageW/2+tw/2, y+3);
+  y += 34;
+
+  doc.setFont('helvetica','normal'); doc.setFontSize(10);
+  const line = (label,val)=>{ doc.text(`${label}: ${val||'—'}`, 45, y); y += 18; };
+  line('Location', req.location);
+  line('Type of supply', req.supplyType);
+  line('Requested period', `${fmtDate(req.periodFrom)} to ${fmtDate(req.periodTo)}`);
+  line('Purpose', (req.purposes||[]).join(', ') + (req.purposeOther?' ('+req.purposeOther+')':''));
+  line('Requirement', req.requirement);
+  y += 6;
+  line('Applicant', `${req.applicantName} (${req.designation})`);
+  line('Employee no. / Department', `${req.empNo} / ${req.department}`);
+  line('Forwarding officer / HOD', req.forwarding);
+  y += 10;
+
+  doc.setFont('helvetica','bold'); doc.text('Declaration:', 45, y); y += 16;
+  doc.setFont('helvetica','normal'); doc.setFontSize(9);
+  const declLines = [
+    'I/We will ensure there is no unauthorised addition or alteration to the temporary supply.',
+    'I/We will ensure connected equipment is healthy and properly earthed.',
+    'I/We will abide by electrical safety rules and ensure safe working on the temporary connection.',
+    'I/We will inform EMD to disconnect immediately after work completion.'
+  ];
+  declLines.forEach(l=>{ doc.text('• '+l, 50, y); y += 14; });
+  y += 20;
+
+  doc.setFontSize(10);
+  doc.text('Status: ' + req.status, 45, y); y += 20;
+  if(req.status==='Issued'){
+    doc.text(`SL No.: ${req.slNo||'—'}   Technician: ${req.technicianName||'—'}   Date: ${fmtDate(req.connectionDate)}`, 45, y);
+  } else if(req.status==='Rejected' && req.rejectReason){
+    doc.text('Reason: ' + req.rejectReason, 45, y);
+  }
+
+  return doc.output('datauristring');
+}
+
+
+
+function exportExcel(){
+  // Simple multi-CSV export bundle (one CSV per sheet/tab in the data model)
+  function toCsv(rows){
+    if(!rows.length) return '';
+    const cols = Object.keys(rows[0]);
+    const esc = v => '"' + String(v===undefined||v===null?'':v).replace(/"/g,'""') + '"';
+    return cols.join(',') + '\n' + rows.map(r=>cols.map(c=>esc(r[c])).join(',')).join('\n');
+  }
+  const files = {
+    'templates.csv': toCsv(STATE.templates.map(t=>({id:t.id,name:t.name,category:t.category,frequencyDays:t.frequencyDays}))),
+    'assets.csv': toCsv(STATE.assets.map(a=>({id:a.id,templateId:a.templateId,createdOn:a.createdOn,...a.fieldValues}))),
+    'inspections.csv': toCsv(STATE.inspections.map(i=>({id:i.id,assetId:i.assetId,templateId:i.templateId,date:i.date,inspector:i.inspector,oneDriveUrl:i.oneDriveUrl||''})))
+  };
+  Object.entries(files).forEach(([name, content])=>{
+    if(!content) return;
+    const blob = new Blob([content], {type:'text/csv'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = name; a.click();
+  });
+  toast('Exported CSVs for templates, assets, and inspections.');
+}
+
+/* ============================================================
+   PAGE: TEMPLATE MANAGER  (#/templates)
+   ============================================================ */
+route('/templates', ()=>{
+  if(!hasRole('admin')){ toast('Templates is admin-only.'); navigate('/checklist'); return; }
+  const rows = STATE.templates.map(t=>{
+    const count = STATE.assets.filter(a=>a.templateId===t.id).length;
+    return [
+      el('span',{class:'font-medium'},[t.name]),
+      t.category||'—',
+      (t.frequencyDays||'—')+' days',
+      String(count),
+      el('div', {class:'flex gap-2 justify-end flex-wrap'}, [
+        el('a', {href:'#/templates/'+t.id+'/builder', class:'btn btn-ghost'}, ['Edit']),
+        el('a', {href:'#/assets/'+t.id, class:'btn btn-ghost'}, ['Assets']),
+        el('button', {class:'btn btn-danger', onclick:()=>requireAdmin(()=>deleteTemplate(t.id))}, ['Delete'])
+      ])
+    ];
+  });
+  const tbl = gridTable(
+    [
+      {label:'Name', width:'30%'},
+      {label:'Category', width:'16%'},
+      {label:'Frequency', width:'14%'},
+      {label:'Assets', width:'10%'},
+      {label:'', width:'30%', align:'right'}
+    ],
+    rows
+  );
+  shell(el('div', {}, [
+    pageHeader('Template Manager', 'Every checklist type your site uses — including the 10 seeded from the safety-16 checklist pack.', [
+      el('button', {class:'btn btn-primary', onclick:()=>requireAdmin(createTemplate)}, ['+ New Template'])
+    ]),
+    el('div', {class:'card overflow-x-auto'}, [tbl])
+  ]));
+});
+
+function createTemplate(){
+  const t = { id: uid('t'), name:'New Template', category:'General', frequencyDays:30,
+    pdfTitle:'NEW CHECKLIST', pdfDocCode: CONFIG.DOC_CODE,
+    requireInspectorSig:true, requireContractorSig:false, requirePhoto:false,
+    reminderLeadDays:5, reminderRepeatDays:7, reminderRecipients:'',
+    assetFields:[{key:'assetNo', label:'Asset Number', type:'text', required:true}],
+    checklistItems:[{no:1, description:'First check item', responseType:'yes_no_na', requiresRemark:'on_no'}] };
+  STATE.templates.push(t); saveState();
+  navigate('/templates/'+t.id+'/builder');
+}
+function deleteTemplate(id){
+  const backup = STATE.templates.find(t=>t.id===id);
+  STATE.templates = STATE.templates.filter(t=>t.id!==id);
+  saveState(); render();
+  toast('Template deleted.', {undo:()=>{ STATE.templates.push(backup); saveState(); render(); }});
+}
+
+/* ============================================================
+   PAGE: TEMPLATE BUILDER  (#/templates/:id/builder)
+   ============================================================ */
+route('/templates/:id/builder', ({params})=>{
+  if(!hasRole('admin')){ toast('Template Builder is admin-only.'); navigate('/checklist'); return; }
+  const t = STATE.templates.find(x=>x.id===params.id);
+  if(!t){ navigate('/templates'); return; }
+
+  const nameInput = el('input', {value:t.name});
+  const catInput = el('input', {value:t.category||''});
+  const freqInput = el('input', {type:'number', value:t.frequencyDays});
+  const titleInput = el('input', {value:t.pdfTitle||''});
+  const docInput = el('input', {value:t.pdfDocCode||''});
+  const leadInput = el('input', {type:'number', value:t.reminderLeadDays});
+  const repeatInput = el('input', {type:'number', value:t.reminderRepeatDays});
+  const recipInput = el('input', {value:t.reminderRecipients||'', placeholder:'comma-separated emails'});
+  const inspSigChk = el('input', {type:'checkbox', ...(t.requireInspectorSig?{checked:'checked'}:{})});
+  const contSigChk = el('input', {type:'checkbox', ...(t.requireContractorSig?{checked:'checked'}:{})});
+  const photoChk = el('input', {type:'checkbox', ...(t.requirePhoto?{checked:'checked'}:{})});
+
+  function saveMeta(){
+    t.name = nameInput.value; t.category = catInput.value; t.frequencyDays = Number(freqInput.value)||30;
+    t.pdfTitle = titleInput.value; t.pdfDocCode = docInput.value;
+    t.reminderLeadDays = Number(leadInput.value)||0; t.reminderRepeatDays = Number(repeatInput.value)||7;
+    t.reminderRecipients = recipInput.value;
+    t.requireInspectorSig = inspSigChk.checked; t.requireContractorSig = contSigChk.checked; t.requirePhoto = photoChk.checked;
+    saveState();
+  }
+  [nameInput,catInput,freqInput,titleInput,docInput,leadInput,repeatInput,recipInput,inspSigChk,contSigChk,photoChk]
+    .forEach(i=> i.addEventListener('change', ()=>{ saveMeta(); renderPreview(); }));
+
+  // --- Asset fields panel ---
+  const fieldsList = el('div', {class:'space-y-2'});
+  function renderFields(){
+    clear(fieldsList);
+    t.assetFields.forEach((f, idx)=>{
+      fieldsList.appendChild(fieldRow(f, idx));
+    });
+  }
+  function fieldRow(f, idx){
+    const label = el('input', {value:f.label, class:'flex-1'});
+    const key = el('input', {value:f.key, class:'w-28 text-xs'});
+    const type = el('select', {}, ['text','number','date','select','textarea'].map(o=>el('option',{value:o, ...(f.type===o?{selected:'selected'}:{})},[o])));
+    const req = el('input', {type:'checkbox', title:'Required', ...(f.required?{checked:'checked'}:{})});
+    const optsInput = el('input', {value:(f.options||[]).join(', '), placeholder:'options (comma-sep)', class:(f.type==='select'?'':'hidden')});
+    type.addEventListener('change', ()=>{ f.type=type.value; optsInput.classList.toggle('hidden', f.type!=='select'); saveState(); renderPreview(); });
+    label.addEventListener('change', ()=>{ f.label=label.value; saveState(); renderPreview(); });
+    key.addEventListener('change', ()=>{ f.key=key.value.trim(); saveState(); renderPreview(); });
+    req.addEventListener('change', ()=>{ f.required=req.checked; saveState(); });
+    optsInput.addEventListener('change', ()=>{ f.options = optsInput.value.split(',').map(s=>s.trim()).filter(Boolean); saveState(); renderPreview(); });
+    return el('div', {class:'card p-3'}, [
+      el('div', {class:'flex items-center gap-2 mb-2'}, [
+        el('span', {class:'drag-handle'}, ['⠿']), label,
+        el('button', {class:'btn btn-danger', style:'padding:.2rem .5rem', onclick:()=>{ t.assetFields.splice(idx,1); saveState(); renderFields(); renderPreview(); }}, ['✕'])
+      ]),
+      el('div', {class:'flex items-center gap-2 text-xs'}, [
+        el('span',{class:'text-slate-400'},['key:']), key, type,
+        el('label', {class:'flex items-center gap-1'}, [req, 'required'])
+      ]),
+      optsInput
+    ]);
+  }
+  const addFieldBtn = el('button', {class:'btn btn-ghost w-full', onclick:()=>{
+    t.assetFields.push({key:'field'+(t.assetFields.length+1), label:'New Field', type:'text'});
+    saveState(); renderFields(); renderPreview();
+  }}, ['+ Add field']);
+
+  // --- Checklist items panel ---
+  const itemsList = el('div', {class:'space-y-2'});
+  function renderItems(){
+    clear(itemsList);
+    t.checklistItems.forEach((it, idx)=> itemsList.appendChild(itemRow(it, idx)));
+  }
+  function itemRow(it, idx){
+    const desc = el('textarea', {rows:'2', class:'flex-1'}, [it.description]);
+    const rtype = el('select', {}, ['yes_no_na','pass_fail','rating_1_5','text','number'].map(o=>el('option',{value:o, ...(it.responseType===o?{selected:'selected'}:{})},[o])));
+    const remark = el('select', {}, ['on_no','always','never'].map(o=>el('option',{value:o, ...(it.requiresRemark===o?{selected:'selected'}:{})},[o])));
+    desc.addEventListener('change', ()=>{ it.description=desc.value; saveState(); renderPreview(); });
+    rtype.addEventListener('change', ()=>{ it.responseType=rtype.value; saveState(); renderPreview(); });
+    remark.addEventListener('change', ()=>{ it.requiresRemark=remark.value; saveState(); });
+    return el('div', {class:'card p-3'}, [
+      el('div', {class:'flex items-start gap-2'}, [
+        el('span', {class:'drag-handle mt-2'}, ['⠿']),
+        el('span', {class:'text-xs font-bold text-slate-400 mt-2'}, ['#'+it.no]),
+        desc,
+        el('button', {class:'btn btn-danger self-start', style:'padding:.2rem .5rem', onclick:()=>{ t.checklistItems.splice(idx,1); t.checklistItems.forEach((x,i)=>x.no=i+1); saveState(); renderItems(); renderPreview(); }}, ['✕'])
+      ]),
+      el('div', {class:'flex items-center gap-3 text-xs mt-2 pl-6'}, [
+        el('span', {class:'text-slate-400'}, ['response:']), rtype,
+        el('span', {class:'text-slate-400'}, ['remark:']), remark
+      ])
+    ]);
+  }
+  const addItemBtn = el('button', {class:'btn btn-ghost w-full', onclick:()=>{
+    t.checklistItems.push({no:t.checklistItems.length+1, description:'New check item', responseType:'yes_no_na', requiresRemark:'on_no'});
+    saveState(); renderItems(); renderPreview();
+  }}, ['+ Add checklist item']);
+
+  // --- live preview ---
+  const previewPane = el('div', {class:'space-y-3'});
+  function renderPreview(){
+    clear(previewPane);
+    previewPane.appendChild(el('div', {class:'font-head font-bold text-sm'}, [t.pdfTitle || t.name]));
+    t.assetFields.forEach(f=> previewPane.appendChild(el('div', {class:'text-xs text-slate-500'}, [f.label + (f.required?' *':'') + '  ['+f.type+']'])));
+    previewPane.appendChild(el('div', {class:'border-t border-slate-200 my-2'}));
+    t.checklistItems.forEach(it=>{
+      previewPane.appendChild(el('div', {class:'text-xs flex justify-between gap-2 py-1 border-b border-slate-100'}, [
+        el('span', {}, [it.no+'. '+it.description]),
+        el('span', {class:'text-slate-400 whitespace-nowrap'}, [it.responseType])
+      ]));
+    });
+  }
+
+  renderFields(); renderItems(); renderPreview();
+
+  shell(el('div', {}, [
+    pageHeader('Template Builder', t.name, [
+      el('a', {href:'#/templates', class:'btn btn-ghost'}, ['← Back to templates'])
+    ]),
+    el('div', {class:'card p-5 mb-5 grid sm:grid-cols-2 lg:grid-cols-4 gap-4'}, [
+      labeled('Name', nameInput), labeled('Category', catInput), labeled('Frequency (days)', freqInput),
+      labeled('PDF Title', titleInput), labeled('Doc / Revision Code', docInput),
+      labeled('Reminder lead days', leadInput), labeled('Reminder repeat days (while overdue)', repeatInput),
+      labeled('Reminder recipients', recipInput),
+      el('div', {class:'flex items-end gap-4'}, [
+        el('label', {class:'flex items-center gap-1 text-sm'}, [inspSigChk, 'Inspector signature']),
+        el('label', {class:'flex items-center gap-1 text-sm'}, [contSigChk, 'Contractor signature']),
+        el('label', {class:'flex items-center gap-1 text-sm'}, [photoChk, 'Photo required'])
+      ])
+    ]),
+    el('div', {class:'grid lg:grid-cols-3 gap-5'}, [
+      el('div', {}, [el('h3', {class:'font-head font-bold mb-2'}, ['Asset fields']), fieldsList, addFieldBtn]),
+      el('div', {}, [el('h3', {class:'font-head font-bold mb-2'}, ['Checklist items']), itemsList, addItemBtn]),
+      el('div', {}, [el('h3', {class:'font-head font-bold mb-2'}, ['Live preview']), el('div', {class:'card p-4'}, [previewPane])])
+    ])
+  ]));
+});
+function labeled(label, input){ return el('div', {}, [el('label', {class:'field-label'}, [label]), input]); }
+
+/* ============================================================
+   PAGE: ASSET LIST  (#/assets/:templateId)
+   ============================================================ */
+route('/assets/:templateId', ({params})=>{
+  const t = STATE.templates.find(x=>x.id===params.templateId);
+  if(!t){ navigate('/templates'); return; }
+  const search = el('input', {placeholder:'Search…', style:'width:320px; flex-shrink:0;'});
+  const tableWrap = el('div');
+  function inspCount(assetId){ return STATE.inspections.filter(i=>i.assetId===assetId).length; }
+  function renderTable(filterText){
+    clear(tableWrap);
+    const assets = STATE.assets.filter(a=>a.templateId===t.id).filter(a=>{
+      if(!filterText) return true;
+      return JSON.stringify(a.fieldValues).toLowerCase().includes(filterText.toLowerCase());
+    });
+    if(!assets.length){
+      tableWrap.appendChild(el('div', {class:'card text-center text-slate-400 py-12'}, ['No assets yet. Click "+ Add Asset" to register one.']));
+      return;
+    }
+    const columns = [
+      ...t.assetFields.map(f=>({label:f.label, width:'minmax(120px,1fr)'})),
+      {label:'Status', width:'150px'},
+      {label:'Inspections', width:'120px'},
+      {label:'Actions', width:'300px', align:'right'}
+    ];
+    const rows = assets.map(a=>{
+      const s = statusFor(a, t);
+      const n = inspCount(a.id);
+      return [
+        ...t.assetFields.map((f,idx)=> idx===0
+          ? el('a', {href:'#/assets/'+t.id+'/'+a.id, class:'font-semibold hover:underline', style:'color:#696cff;'}, [String(a.fieldValues[f.key]||'—')])
+          : String(a.fieldValues[f.key]||'—')
+        ),
+        pill(s),
+        el('span', {class:'badge-count'}, [n + (n===1?' record':' records')]),
+        el('div', {class:'flex gap-2 justify-end flex-wrap'}, [
+          hasRole('user') ? el('button', {class:'btn btn-primary', onclick:()=>requireRole('user', ()=>openInspectionModal(t,a))}, ['+ Inspect']) : null,
+          el('a', {href:'#/assets/'+t.id+'/'+a.id, class:'btn btn-ghost'}, ['History']),
+          hasRole('user') ? el('button', {class:'btn btn-danger', onclick:()=>requireRole('user', ()=>deleteAsset(t,a))}, ['Delete']) : null
+        ])
+      ];
+    });
+    tableWrap.appendChild(el('div', {class:'card overflow-x-auto'}, [gridTable(columns, rows)]));
+  }
+  search.addEventListener('input', ()=>renderTable(search.value));
+  renderTable('');
+
+  const count = STATE.assets.filter(a=>a.templateId===t.id).length;
+  shell(el('div', {}, [
+    el('div', {class:'mb-4'}, [
+      el('a', {href:'#/checklist', class:'btn btn-ghost'}, ['← Back'])
+    ]),
+    el('div', {class:'flex flex-wrap items-center justify-between gap-3 mb-6'}, [
+      el('div', {class:'flex items-center gap-3'}, [
+        el('h1', {class:'font-head text-2xl font-extrabold text-slate-900'}, [t.name]),
+        el('span', {class:'badge-count'}, [count + ' total'])
+      ]),
+      el('div', {class:'flex items-center gap-2 flex-nowrap'}, [
+        search,
+        hasRole('user') ? el('button', {class:'btn btn-success whitespace-nowrap', onclick:()=>requireRole('user', ()=>openAssetForm(t))}, ['+ Add Asset']) : null
+      ])
+    ]),
+    tableWrap
+  ]));
+});
+function deleteAsset(t, a){
+  if(!confirm('Delete this asset and its inspection history reference? This cannot be undone.')) return;
+  const backupAsset = a;
+  const backupInsp = STATE.inspections.filter(i=>i.assetId===a.id);
+  STATE.assets = STATE.assets.filter(x=>x.id!==a.id);
+  saveState(); render();
+  toast('Asset deleted.', {undo:()=>{ STATE.assets.push(backupAsset); saveState(); render(); }});
+}
+
+function openAssetForm(t, existing){
+  const values = existing ? {...existing.fieldValues} : {};
+  const inputs = {};
+  const bg = el('div', {class:'modal-bg'});
+  const fieldsNode = el('div', {class:'space-y-3'});
+  t.assetFields.forEach(f=>{
+    let input;
+    if(f.type==='select'){
+      input = el('select', {}, (f.options||[]).map(o=>el('option', {value:o, ...(values[f.key]===o?{selected:'selected'}:{})}, [o])));
+    } else if(f.type==='textarea'){
+      input = el('textarea', {rows:'3'}, [values[f.key]||'']);
+    } else {
+      input = el('input', {type: f.type==='date'?'date':(f.type==='number'?'number':'text'), value: values[f.key]||''});
+    }
+    inputs[f.key] = input;
+    fieldsNode.appendChild(labeled(f.label + (f.required?' *':''), input));
+  });
+  const box = el('div', {class:'modal-box p-6'}, [
+    el('h3', {class:'font-head text-lg font-bold mb-4'}, [existing ? 'Edit asset' : 'Add asset — ' + t.name]),
+    fieldsNode,
+    el('div', {class:'flex justify-end gap-2 mt-5'}, [
+      el('button', {class:'btn btn-ghost', onclick:()=>bg.remove()}, ['Cancel']),
+      el('button', {class:'btn btn-primary', onclick:()=>{
+        const fv = {};
+        t.assetFields.forEach(f=> fv[f.key] = inputs[f.key].value);
+        const missing = t.assetFields.filter(f=>f.required && !fv[f.key]);
+        if(missing.length){ toast('Please fill: ' + missing.map(f=>f.label).join(', ')); return; }
+        if(existing){ existing.fieldValues = fv; }
+        else { STATE.assets.push({ id: uid('a'), templateId: t.id, createdOn: new Date().toISOString(), fieldValues: fv }); }
+        saveState(); bg.remove(); render();
+        toast(existing ? 'Asset updated.' : 'Asset added.');
+      }}, [existing ? 'Save' : 'Add asset'])
+    ])
+  ]);
+  bg.appendChild(box); document.body.appendChild(bg);
+}
+
+/* ============================================================
+   PAGE: ASSET DETAIL  (#/assets/:templateId/:assetId)
+   ============================================================ */
+route('/assets/:templateId/:assetId', ({params})=>{
+  const t = STATE.templates.find(x=>x.id===params.templateId);
+  const a = STATE.assets.find(x=>x.id===params.assetId);
+  if(!t || !a){ navigate('/templates'); return; }
+  const s = statusFor(a, t);
+  const history = STATE.inspections.filter(i=>i.assetId===a.id).sort((x,y)=> new Date(y.date)-new Date(x.date));
+
+  const historyTable = history.length ? gridTable(
+    [
+      {label:'Date', width:'18%'},
+      {label:'Inspector', width:'22%'},
+      {label:'PDF', width:'35%'},
+      {label:'', width:'25%', align:'right'}
+    ],
+    history.map(h=> [
+      fmtDate(h.date),
+      h.inspector || '—',
+      h.oneDriveUrl ? el('a',{href:h.oneDriveUrl, target:'_blank', class:'underline', style:'color:#696cff;'},['View on OneDrive']) : el('span',{class:'text-slate-400'},['local only']),
+      el('button',{class:'btn btn-ghost', onclick:()=>regeneratePdf(t,a,h)},['Re-download PDF'])
+    ])
+  ) : null;
+
+  shell(el('div', {}, [
+    pageHeader(a.fieldValues[t.assetFields[0].key] || a.id, t.name, [
+      el('a', {href:'#/assets/'+t.id, class:'btn btn-ghost'}, ['← Back']),
+      hasRole('user') ? el('button', {class:'btn btn-ghost', onclick:()=>requireRole('user', ()=>openAssetForm(t, a))}, ['Edit asset']) : null,
+      hasRole('user') ? el('button', {class:'btn btn-primary', onclick:()=>requireRole('user', ()=>openInspectionModal(t,a))}, ['+ New Inspection']) : null
+    ]),
+    el('div', {class:'grid lg:grid-cols-3 gap-5'}, [
+      el('div', {class:'card p-5'}, [
+        el('h3', {class:'font-head font-bold mb-3'}, ['Asset info']),
+        el('div', {class:'space-y-2 text-sm'}, t.assetFields.map(f=>
+          el('div', {class:'flex justify-between border-b border-slate-100 pb-1'}, [el('span',{class:'text-slate-400'},[f.label]), el('span',{class:'font-medium'},[String(a.fieldValues[f.key]||'—')])])
+        )),
+        el('div', {class:'mt-4'}, [pill(s)])
+      ]),
+      el('div', {class:'lg:col-span-2 card p-5'}, [
+        el('h3', {class:'font-head font-bold mb-3'}, ['Inspection history']),
+        historyTable ? el('div', {class:'overflow-x-auto'}, [historyTable]) : el('div', {class:'text-slate-400 text-sm py-6 text-center'}, ['No inspections recorded yet.'])
+      ])
+    ])
+  ]));
+});
+
+/* ============================================================
+   INSPECTION MODAL — opens over any page (Asset List, Asset
+   Detail, Reminders). Mirrors the compact inspection dialog style.
+   ============================================================ */
+function openInspectionModal(t, a){
+  const dateInput = el('input', {type:'date', value: new Date().toISOString().slice(0,10)});
+  const deptInput = el('input', {value:a.fieldValues.department||''});
+  const areaInput = el('input', {value:a.fieldValues.area||''});
+  const contractorInput = el('input', {value:a.fieldValues.contractor||''});
+  const inspectorInput = el('input', {placeholder:'Inspector name'});
+  const obsInput = el('textarea', {rows:'2'});
+  const correctiveInput = el('textarea', {rows:'2'});
+  const inspSigInput = el('input', {type:'file', accept:'image/*'});
+  const contSigInput = el('input', {type:'file', accept:'image/*'});
+  const photoInput = el('input', {type:'file', accept:'image/*'});
+
+  const answers = {};
+  const itemRows = t.checklistItems.map(it=>{
+    let responseNode;
+    const isRequiredRemark = it.requiresRemark==='always';
+    const remarkInput = el('input', {
+      placeholder: 'Remarks' + (isRequiredRemark ? ' *' : ''),
+      style: isRequiredRemark ? 'border-color:#ff3e1d; background:#fff2ef;' : ''
+    });
+    function setAnswer(v){ answers[it.no] = answers[it.no]||{}; answers[it.no].answer = v; }
+    if(it.responseType==='yes_no_na' || it.responseType==='pass_fail'){
+      const opts = it.responseType==='yes_no_na' ? ['Yes','No','N/A'] : ['Pass','Fail'];
+      responseNode = el('div', {class:'radio-group flex gap-2 flex-wrap'}, opts.map(o=>{
+        const radio = el('input', {type:'radio', name:'item'+it.no, value:o, onchange:()=>setAnswer(o)});
+        return el('label', {}, [radio, el('span',{},[o])]);
+      }));
+    } else if(it.responseType==='rating_1_5'){
+      responseNode = el('div', {class:'radio-group flex gap-2'}, [1,2,3,4,5].map(n=>{
+        const radio = el('input', {type:'radio', name:'item'+it.no, value:String(n), onchange:()=>setAnswer(String(n))});
+        return el('label', {}, [radio, el('span',{},[String(n)])]);
+      }));
+    } else {
+      responseNode = el('input', {type: it.responseType==='number'?'number':'text', oninput:(e)=>setAnswer(e.target.value)});
+    }
+    answers[it.no] = { answer:'', remark:'' };
+    remarkInput.addEventListener('input', ()=>{
+      answers[it.no].remark = remarkInput.value;
+      if(isRequiredRemark){ remarkInput.style.borderColor = remarkInput.value ? '' : '#ff3e1d'; remarkInput.style.background = remarkInput.value ? '' : '#fff2ef'; }
+    });
+    const descNode = isRequiredRemark
+      ? el('span', {}, [it.description, el('span', {style:'color:#ff3e1d; font-weight:700;'}, [' *'])])
+      : it.description;
+    return [String(it.no), descNode, responseNode, it.requiresRemark==='never' ? '' : remarkInput];
+  });
+
+  function buildInspectionObj(){
+    return {
+      id: uid('insp'), assetId: a.id, templateId: t.id,
+      date: dateInput.value, department: deptInput.value, area: areaInput.value,
+      contractor: contractorInput.value, inspector: inspectorInput.value,
+      observations: obsInput.value, correctiveActions: correctiveInput.value,
+      answers: t.checklistItems.map(it=> ({ itemNo: it.no, description: it.description, answer: (answers[it.no]||{}).answer||'', remark: (answers[it.no]||{}).remark||'' })),
+      inspectorSignature: null, inspectorSigDims: null,
+      contractorSignature: null, contractorSigDims: null,
+      photo: null, photoDims: null,
+      oneDriveUrl: ''
+    };
+  }
+
+  async function submit(){
+    if(!dateInput.value){ toast('Date is required.'); return; }
+    if(t.requireInspectorSig && !inspSigInput.files[0]){ toast('Inspector signature is required.'); return; }
+    if(t.requireContractorSig && !contSigInput.files[0]){ toast('Contractor signature is required.'); return; }
+    if(t.requirePhoto && !photoInput.files[0]){ toast('Photo evidence is required.'); return; }
+    const missingRemarks = t.checklistItems.filter(it=>{
+      const ans = answers[it.no]||{};
+      return it.requiresRemark==='always' && !ans.remark;
+    });
+    if(missingRemarks.length){
+      toast('Please add a remark for: ' + missingRemarks.map(m=>'#'+m.no+' '+m.description).join('; '), {duration:6000});
+      const box = document.querySelector('.insp-modal-body');
+      if(box) box.scrollTop = 0;
+      return;
+    }
+
+    const insp = buildInspectionObj();
+
+    // Read the uploaded signature/photo files and pre-measure their aspect ratio so
+    // the PDF can embed them properly instead of just leaving a blank line.
+    const [inspSigData, contSigData, photoData] = await Promise.all([
+      readFileAsDataURL(inspSigInput.files[0]),
+      readFileAsDataURL(contSigInput.files[0]),
+      readFileAsDataURL(photoInput.files[0])
+    ]);
+    if(inspSigData){ insp.inspectorSignature = inspSigData; insp.inspectorSigDims = await loadImageDims(inspSigData); }
+    if(contSigData){ insp.contractorSignature = contSigData; insp.contractorSigDims = await loadImageDims(contSigData); }
+    if(photoData){ insp.photo = photoData; insp.photoDims = await loadImageDims(photoData); }
+
+    if(!window.jspdf || !window.jspdf.jsPDF){
+      toast('PDF library failed to load (check your internet connection) — saving the inspection anyway. Use "Re-download PDF" from the asset history once the page can reach the internet.', {duration:8000});
+      STATE.inspections.push(insp);
+      saveState();
+      bg.remove();
+      render();
+      return;
+    }
+
+    let pdfDataUri = null;
+    try{
+      pdfDataUri = generatePDF(t, a, insp);
+    }catch(err){
+      toast('PDF generation failed (' + err.message + ') — the inspection was still saved. Try "Re-download PDF" from the asset history.', {duration:8000});
+      STATE.inspections.push(insp);
+      saveState();
+      bg.remove();
+      render();
+      return;
+    }
+
+    if(CONFIG.GAS_URL){
+      try{
+        const resp = await fetch(CONFIG.GAS_URL, { method:'POST', body: new URLSearchParams({
+          action:'uploadFile', fileName:`${t.name}_${insp.date}_${a.fieldValues[t.assetFields[0].key]||a.id}.pdf`,
+          mimeType:'application/pdf', subfolderName:t.name, base64: pdfDataUri.split(',')[1]
+        })});
+        const j = await resp.json();
+        insp.oneDriveUrl = j.url || '';
+      }catch(e){ /* offline fallback below */ }
+    }
+    STATE.inspections.push(insp);
+    saveState();
+    downloadPdf(pdfDataUri, `${t.name}_${insp.date}.pdf`);
+    bg.remove();
+    toast('Inspection saved' + (insp.oneDriveUrl ? ' and uploaded to OneDrive.' : ' — PDF downloaded locally.'));
+    render();
+  }
+
+  const checklistTable = gridTable(
+    [
+      {label:'#', width:'4%'},
+      {label:'Description', width:'32%'},
+      {label:'Yes / No / N/A', width:'36%'},
+      {label:'Remarks', width:'28%'}
+    ],
+    itemRows.map(r=> [
+      el('span', {class:'text-slate-400'}, [r[0]]),
+      r[1],
+      r[2],
+      r[3]
+    ]),
+    {dividers:true}
+  );
+
+  const bg = el('div', {class:'modal-bg', style:'align-items:flex-start; padding-top:3vh;'});
+  const box = el('div', {class:'insp-modal-box'}, [
+    el('div', {class:'insp-modal-header'}, [
+      el('div', {}, [
+        el('div', {class:'text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1'}, [t.pdfTitle || t.name]),
+        el('h3', {class:'font-head text-lg font-bold'}, ['Inspection — ' + (a.fieldValues[t.assetFields[0].key] || a.id)])
+      ]),
+      el('button', {class:'text-slate-400 hover:text-slate-700 text-xl leading-none', onclick:()=>bg.remove()}, ['✕'])
+    ]),
+    el('div', {class:'insp-modal-body'}, [
+      el('div', {class:'card p-4 mb-4', style:'background:#f8fafc'}, [
+        el('div', {class:'grid sm:grid-cols-3 gap-3'}, t.assetFields.map(f=>
+          el('div', {}, [
+            el('div', {class:'text-xs font-semibold text-slate-400 uppercase tracking-wide'}, [f.label]),
+            el('div', {class:'font-semibold text-sm'}, [String(a.fieldValues[f.key]||'—')])
+          ])
+        ))
+      ]),
+      el('div', {class:'grid sm:grid-cols-2 gap-4 mb-4'}, [
+        labeled('Inspection Date *', dateInput), labeled('Department / Section', deptInput)
+      ]),
+      el('div', {class:'grid sm:grid-cols-3 gap-4 mb-4'}, [
+        labeled('Area', areaInput), labeled('Contractor / Agency', contractorInput), labeled('Inspector name', inspectorInput)
+      ]),
+      el('div', {class:'mb-4'}, [
+        el('div', {class:'field-label mb-2'}, ['Inspection checklist']),
+        el('div', {class:'overflow-x-auto border border-slate-200 rounded-xl'}, [checklistTable])
+      ]),
+      el('div', {class:'grid sm:grid-cols-2 gap-4 mb-4'}, [
+        labeled('Observations', obsInput), labeled('Corrective actions', correctiveInput)
+      ]),
+      el('div', {class:'grid sm:grid-cols-3 gap-4'}, [
+        t.requireInspectorSig ? labeled('Inspector signature *', inspSigInput) : null,
+        t.requireContractorSig ? labeled('Contractor signature *', contSigInput) : null,
+        t.requirePhoto ? labeled('Photo evidence *', photoInput) : null
+      ])
+    ]),
+    el('div', {class:'insp-modal-footer', style:'justify-content:flex-end;'}, [
+      el('div', {class:'flex gap-2'}, [
+        el('button', {class:'btn btn-ghost', onclick:()=>bg.remove()}, ['Cancel']),
+        el('button', {class:'btn btn-primary', onclick:submit}, ['Save & Generate PDF'])
+      ])
+    ])
+  ]);
+  bg.appendChild(box);
+  document.body.appendChild(bg);
+}
+
+// Deep-link support: #/inspect/:assetId opens the asset detail page underneath, then
+// pops the inspection modal on top of it.
+route('/inspect/:assetId', ({params})=>{
+  if(!hasRole('user')){ toast('You need User access to record inspections.'); navigate('/checklist'); return; }
+  const a = STATE.assets.find(x=>x.id===params.assetId);
+  if(!a){ navigate('/templates'); return; }
+  const t = STATE.templates.find(x=>x.id===a.templateId);
+  navigate('/assets/'+t.id+'/'+a.id);
+  setTimeout(()=>openInspectionModal(t,a), 0);
+});
+
+/* ============================================================
+   PDF GENERATION (jsPDF)
+   ============================================================ */
+function generatePDF(t, a, insp){
+  if(t.id === 't_ppe') return generatePpePdf(t, a, insp);
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({unit:'pt', format:'a4'});
+  const pageW = doc.internal.pageSize.getWidth();
+  let y = 40;
+
+  doc.setFont('helvetica','bold'); doc.setFontSize(13);
+  doc.text(t.pdfTitle || t.name, pageW/2, y, {align:'center'}); y+=24;
+
+  doc.setFont('helvetica','normal'); doc.setFontSize(9);
+  doc.text(`Department / Section: ${insp.department||'—'}`, 40, y);
+  doc.text(`Area: ${insp.area||'—'}`, 40+240, y);
+  doc.text(`Date: ${fmtDate(insp.date)}`, 40+400, y);
+  y += 16;
+  doc.text(`Contractor/Agency: ${insp.contractor||'—'}`, 40, y); y += 16;
+  doc.text(`${t.assetFields[0].label}: ${a.fieldValues[t.assetFields[0].key]||'—'}`, 40, y); y += 16;
+  y += 8;
+
+  // Bordered checklist table (outer box + inner column/row rules)
+  const tableLeft = 40, tableRight = pageW-40;
+  const tw = tableRight-tableLeft;
+  const colW = { no: 26, resp: 85, remark: 115 };
+  colW.desc = tw - colW.no - colW.resp - colW.remark;
+  const colX = { no: tableLeft, desc: tableLeft+colW.no, resp: tableLeft+colW.no+colW.desc, remark: tableLeft+colW.no+colW.desc+colW.resp };
+  const vlines = [tableLeft, colX.desc, colX.resp, colX.remark, tableRight];
+
+  function drawTableHeaderRow(startY){
+    const h = 20;
+    doc.setFont('helvetica','bold'); doc.setFontSize(9);
+    doc.setLineWidth(0.75);
+    doc.line(tableLeft, startY, tableRight, startY);
+    doc.line(tableLeft, startY+h, tableRight, startY+h);
+    vlines.forEach(x=> doc.line(x, startY, x, startY+h));
+    doc.text('#', colX.no+5, startY+14);
+    doc.text('Description', colX.desc+5, startY+14);
+    doc.text('Response', colX.resp+5, startY+14);
+    doc.text('Remark', colX.remark+5, startY+14);
+    doc.setFont('helvetica','normal');
+    return startY+h;
+  }
+
+  y = drawTableHeaderRow(y);
+
+  insp.answers.forEach(row=>{
+    const descLines = doc.splitTextToSize(row.description, colW.desc-10);
+    const remarkLines = doc.splitTextToSize(row.remark||'', colW.remark-10);
+    const lineCount = Math.max(descLines.length, remarkLines.length, 1);
+    const rowH = lineCount*11 + 8;
+    if(y + rowH > 780){
+      doc.addPage(); y = 40;
+      y = drawTableHeaderRow(y);
+    }
+    const rowTop = y, rowBottom = y+rowH;
+    doc.setLineWidth(0.5);
+    vlines.forEach(x=> doc.line(x, rowTop, x, rowBottom));
+    doc.line(tableLeft, rowBottom, tableRight, rowBottom);
+    doc.text(String(row.itemNo), colX.no+5, rowTop+12);
+    doc.text(descLines, colX.desc+5, rowTop+12);
+    doc.text(String(row.answer||'—'), colX.resp+5, rowTop+12);
+    doc.text(remarkLines, colX.remark+5, rowTop+12);
+    y = rowBottom;
+  });
+  y += 20;
+
+  if(y>700){ doc.addPage(); y=40; }
+  doc.setFont('helvetica','bold'); doc.text('Observations:', 40, y); y+=12;
+  doc.setFont('helvetica','normal');
+  doc.text(doc.splitTextToSize(insp.observations||'—', pageW-80), 40, y); y+=28;
+
+  doc.setFont('helvetica','bold'); doc.text('Corrective Actions:', 40, y); y+=12;
+  doc.setFont('helvetica','normal');
+  doc.text(doc.splitTextToSize(insp.correctiveActions||'—', pageW-80), 40, y); y+=28;
+
+  if(y>700){ doc.addPage(); y=40; }
+  doc.setFont('helvetica','bold'); doc.setFontSize(9);
+  if(t.requireInspectorSig){
+    doc.text('Inspected by / Signature:', 40, y);
+    y = placeSignature(doc, insp.inspectorSignature, insp.inspectorSigDims, 175, y);
+  }
+  if(y>760){ doc.addPage(); y=40; }
+  if(t.requireContractorSig){
+    doc.text('Contractor (Name, Signature, Date):', 40, y);
+    y = placeSignature(doc, insp.contractorSignature, insp.contractorSigDims, 225, y);
+  }
+  if(y>760){ doc.addPage(); y=40; }
+  doc.setFont('helvetica','normal');
+  doc.text('Inspector: ' + (insp.inspector||'—'), 40, y);
+
+  appendPhotoPage(doc, insp);
+  return doc.output('datauristring');
+}
+
+// Draws a signature image inline next to a label (or a blank underscore line if none
+// was uploaded), and returns the y position for the next line.
+function placeSignature(doc, dataUrl, dims, x, y){
+  if(dataUrl){
+    try{
+      const size = fitDims(dims, 190, 64); // at least 3 checklist-row-heights tall
+      doc.addImage(dataUrl, pdfImageFormat(dataUrl), x, y-50, size.w, size.h);
+    }catch(e){ doc.text('______________________', x, y); }
+  } else {
+    doc.text('______________________', x, y);
+  }
+  return y + 76;
+}
+// Appends a dedicated page with the uploaded photo evidence, scaled to fit and
+// centered, only when a photo was actually provided.
+function appendPhotoPage(doc, insp){
+  if(!insp.photo) return;
+  doc.addPage();
+  const pageW = doc.internal.pageSize.getWidth();
+  const pageH = doc.internal.pageSize.getHeight();
+  doc.setFont('helvetica','bold'); doc.setFontSize(11);
+  doc.text('Photo Evidence', 40, 40);
+  try{
+    const size = fitDims(insp.photoDims, pageW-80, pageH-100);
+    const x = (pageW - size.w)/2;
+    doc.addImage(insp.photo, pdfImageFormat(insp.photo), x, 60, size.w, size.h);
+  }catch(e){ /* skip if the image can't be decoded */ }
+}
+
+// Reconstructs per-PPE-item rows (PPE name / quantity / condition / remarks) from the
+// paired "X — Quantity available" + "X — Condition" checklist answers.
+function buildPpeRows(insp){
+  const map = {};
+  const order = [];
+  insp.answers.forEach(ans=>{
+    const m = ans.description.match(/^(.*)\s+—\s+(Quantity available|Condition)$/);
+    if(!m) return;
+    const base = m[1].trim();
+    if(!map[base]){ map[base] = {ppe:base, quantity:'', condition:'', remarks:''}; order.push(base); }
+    if(m[2]==='Quantity available'){ map[base].quantity = ans.answer || ''; }
+    else { map[base].condition = ans.answer || ''; if(ans.remark) map[base].remarks = ans.remark; }
+  });
+  return order.map(b=>map[b]);
+}
+
+// Matches the original "QUARTERLY INSPECTION OF PPE" paper form layout: centered
+// underlined title, header fields, a bordered # / PPE / Quantity / Condition / Remarks
+// table, observations line, inspected-by / area engineer block, numbered corrective
+// actions, and a contractor sign-off line — no doc-code or page-number footer.
+function generatePpePdf(t, a, insp){
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({unit:'pt', format:'a4'});
+  const pageW = doc.internal.pageSize.getWidth();
+  const marginL = 45, marginR = 45;
+  const usableW = pageW - marginL - marginR;
+  let y = 50;
+
+  // Title, centered + underlined
+  doc.setFont('helvetica','bold'); doc.setFontSize(12);
+  const title = t.pdfTitle || t.name;
+  const titleW = doc.getTextWidth(title);
+  doc.text(title, pageW/2, y, {align:'center'});
+  doc.setLineWidth(0.7);
+  doc.line(pageW/2 - titleW/2, y+3, pageW/2 + titleW/2, y+3);
+  y += 34;
+
+  // Header fields
+  doc.setFont('helvetica','normal'); doc.setFontSize(10);
+  doc.text(`Department / Section: ${insp.department||''}`, marginL, y);
+  doc.text(`Area: ${insp.area||''}`, marginL+280, y);
+  doc.text(`Date: ${fmtDate(insp.date)}`, marginL+420, y);
+  y += 20;
+  doc.text(`Contractor/Agency: ${insp.contractor||''}`, marginL, y); y += 20;
+  doc.text(`Inspected by: ${insp.inspector||''}`, marginL, y); y += 30;
+
+  // Table
+  const rows = buildPpeRows(insp);
+  const totalRows = Math.max(rows.length, 15);
+  const colW = { no:26, ppe:150, qty:95, cond:95 };
+  colW.remarks = usableW - colW.no - colW.ppe - colW.qty - colW.cond;
+  const rowH = 20;
+  const tableTop = y;
+  const colX = {
+    no: marginL,
+    ppe: marginL + colW.no,
+    qty: marginL + colW.no + colW.ppe,
+    cond: marginL + colW.no + colW.ppe + colW.qty,
+    remarks: marginL + colW.no + colW.ppe + colW.qty + colW.cond
+  };
+  const tableBottom = tableTop + rowH * (totalRows + 1);
+
+  doc.setLineWidth(0.75);
+  // outer + column verticals
+  [colX.no, colX.ppe, colX.qty, colX.cond, colX.remarks, marginL+usableW].forEach(x=>{
+    doc.line(x, tableTop, x, tableBottom);
+  });
+  // row horizontals
+  for(let i=0;i<=totalRows+1;i++){
+    const ry = tableTop + i*rowH;
+    doc.line(marginL, ry, marginL+usableW, ry);
+  }
+
+  // header row labels
+  doc.setFont('helvetica','bold'); doc.setFontSize(9);
+  const headerY = tableTop + rowH/2 + 3;
+  doc.text('#', colX.no+8, headerY);
+  doc.text('PPE', colX.ppe+6, headerY);
+  doc.text('QUANTITY', colX.qty+6, headerY);
+  doc.text('CONDITION', colX.cond+6, headerY);
+  doc.text('REMARKS', colX.remarks+6, headerY);
+
+  // data rows
+  doc.setFont('helvetica','normal'); doc.setFontSize(9);
+  for(let i=0;i<totalRows;i++){
+    const r = rows[i];
+    const cy = tableTop + rowH*(i+2) - rowH/2 + 3;
+    doc.text(String(i+1), colX.no+8, cy);
+    if(r){
+      doc.text(String(r.ppe||''), colX.ppe+6, cy);
+      doc.text(String(r.quantity||''), colX.qty+6, cy);
+      doc.text(String(r.condition||''), colX.cond+6, cy);
+      doc.text(doc.splitTextToSize(String(r.remarks||''), colW.remarks-10), colX.remarks+6, cy);
+    }
+  }
+  y = tableBottom + 34;
+
+  // Observations
+  doc.setFont('helvetica','normal'); doc.setFontSize(10);
+  doc.text('Additional Observations, incl. positives & penal actions taken:', marginL, y); y += 16;
+  const obsLines = doc.splitTextToSize(insp.observations || '', usableW);
+  if(obsLines.length){ doc.text(obsLines, marginL, y); y += obsLines.length*13; }
+  doc.setDrawColor(150); doc.line(marginL, y, marginL+usableW, y); y += 26;
+
+  doc.setFont('helvetica','bold');
+  doc.text('INSPECTED BY:', marginL, y); y += 20;
+  doc.setFont('helvetica','normal');
+  doc.text(`NTPC AREA ENGINEER/EIC/HOS (Name & Signature): ${insp.inspector||''}`, marginL, y);
+  y = placeSignature(doc, insp.inspectorSignature, insp.inspectorSigDims, marginL+320, y) - 10;
+  y += 20;
+
+  doc.setFont('helvetica','bold');
+  doc.text('Corrective Actions completed:', marginL, y); y += 18;
+  doc.setFont('helvetica','normal');
+  const actions = (insp.correctiveActions||'').split('\n').map(s=>s.trim()).filter(Boolean);
+  for(let i=0;i<3;i++){
+    doc.text(`${i+1} ${actions[i] ? '- ' + actions[i] : '--------'}`, marginL, y);
+    y += 18;
+  }
+  y += 12;
+
+  doc.setFont('helvetica','bold');
+  doc.text(`CONTRACTOR (Name, Signature, Date): ${insp.contractor||''}`, marginL, y);
+  placeSignature(doc, insp.contractorSignature, insp.contractorSigDims, marginL+320, y);
+
+  appendPhotoPage(doc, insp);
+  return doc.output('datauristring');
+}
+function downloadPdf(dataUri, filename){
+  const a = document.createElement('a');
+  a.href = dataUri; a.download = filename; a.click();
+}
+function regeneratePdf(t,a,insp){
+  const uri = generatePDF(t,a,insp);
+  downloadPdf(uri, `${t.name}_${insp.date}.pdf`);
+}
+
+/* ============================================================
+   RENDER DISPATCH
+   ============================================================ */
+function render(){
+  if(!currentUser()){ renderLogin(); return; }
+  const r = currentRoute();
+  if(r) r.handler(r);
+  else { location.hash = '/'; routes['/']({params:{}}); }
+}
+</script>
+</body>
+</html>
