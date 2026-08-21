@@ -1522,7 +1522,11 @@ function currentRoute(){
     const m = hash.match(rx);
     if(m){
       const params = {};
-      keys.forEach((k,i)=> params[k] = decodeURIComponent(m[i+1]));
+      // decodeURIComponent throws on a malformed sequence (e.g. a raw, un-encoded
+      // '%' in an id) — fall back to the raw segment rather than letting that
+      // exception silently kill the whole render (which looked like "the button
+      // does nothing" from a click on a link built from such an id).
+      keys.forEach((k,i)=>{ try{ params[k] = decodeURIComponent(m[i+1]); }catch(e){ params[k] = m[i+1]; } });
       return { handler: routes[pattern], params };
     }
   }
@@ -2547,7 +2551,7 @@ route('/temp-connection/approve', ()=>{
     ]),
     el('div', {class:'flex gap-2'}, [
       hasRole('admin') ? el('button', {class:'btn btn-danger', onclick:()=>deleteTcRequest(r, {after:render})}, ['Delete']) : null,
-      el('a', {href:'#/temp-connection/approve/'+r.id, class:'btn btn-primary'}, ['Review →'])
+      el('a', {href:'#/temp-connection/approve/'+encodeURIComponent(r.id), class:'btn btn-primary'}, ['Review →'])
     ])
   ])) : [el('div', {class:'card p-8 text-center text-slate-400'}, ['Nothing pending — all caught up.'])];
 
@@ -2568,7 +2572,7 @@ route('/temp-connection/approve', ()=>{
       el('div', {class:'text-xs text-slate-400'}, ['Valid up to '+fmtDate(r.periodTo)+' — connection period has ended.'])
     ]),
     el('div', {class:'flex gap-2'}, [
-      el('a', {href:'#/temp-connection/approve/'+r.id, class:'btn btn-ghost'}, ['Details']),
+      el('a', {href:'#/temp-connection/approve/'+encodeURIComponent(r.id), class:'btn btn-ghost'}, ['Details']),
       el('button', {class:'btn btn-primary', onclick:()=>confirmRemoval(r)}, ['Confirm removal']),
       hasRole('admin') ? el('button', {class:'btn btn-danger', onclick:()=>deleteTcRequest(r, {after:render})}, ['Delete']) : null
     ])
@@ -2615,7 +2619,7 @@ route('/temp-connection/approve', ()=>{
 route('/temp-connection/approve/:id', ({params})=>{
   if(!hasRole('user')){ toast('You need User access to review requests.'); navigate('/temp-connection/register'); return; }
   const req = STATE.tempConnections.find(r=>r.id===params.id);
-  if(!req){ navigate('/temp-connection/approve'); return; }
+  if(!req){ toast('That request could not be found — it may have been resolved or removed already.'); navigate('/temp-connection/approve'); return; }
 
   const summary = el('div', {class:'card p-5 space-y-1 text-sm'}, [
     el('div', {class:'font-head font-bold text-base mb-2'}, [req.location]),
@@ -4151,8 +4155,18 @@ function regeneratePdf(t,a,insp){
 function render(){
   if(!currentUser()){ renderLogin(); return; }
   const r = currentRoute();
-  if(r) r.handler(r);
-  else { location.hash = '/'; routes['/']({params:{}}); }
+  try{
+    if(r) r.handler(r);
+    else { location.hash = '/'; routes['/']({params:{}}); }
+  }catch(e){
+    // Without this, an error thrown inside a route handler (e.g. bad data on a
+    // single record) left the page exactly as it was before the click — URL
+    // updated, nothing on screen changed, no feedback — which looks identical
+    // to "the button does nothing." Surface it and fall back to the dashboard
+    // instead of leaving the user stuck.
+    console.error('Render failed for route', location.hash, e);
+    toast('Something went wrong opening that page (' + (e && e.message || 'unknown error') + ').', {duration:8000});
+  }
 }
 </script>
 </body>
