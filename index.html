@@ -302,6 +302,18 @@ async function getGraphToken(){
   }
 }
 
+// Silent-only variant for background/startup pulls, where popping up a sign-in
+// window unprompted would be bad UX (and can get blocked by the browser anyway,
+// since it's not a direct user gesture). If the cached token can't be silently
+// refreshed, callers should just skip the pull rather than force a popup.
+async function getGraphTokenSilent(){
+  if(!msalInstance) throw new Error('OneDrive is not configured (missing CONFIG.MS_GRAPH.CLIENT_ID).');
+  const account = msalInstance.getActiveAccount() || msalInstance.getAllAccounts()[0];
+  if(!account) throw new Error('Not signed in to OneDrive.');
+  const res = await msalInstance.acquireTokenSilent({ scopes:['Files.ReadWrite'], account });
+  return res.accessToken;
+}
+
 function encodeGraphPath(path){
   return path.split('/').map(encodeURIComponent).join('/');
 }
@@ -368,6 +380,39 @@ async function syncStateToOneDrive(json){
   await uploadBytesToOneDrive(`${CONFIG.MS_GRAPH.FOLDER}/dashboard-state.json`, new TextEncoder().encode(json), 'application/json');
 }
 
+// Downloads raw text content from OneDrive at the given path (relative to the
+// signed-in user's drive root). Returns null if the file doesn't exist yet
+// (e.g. this device has never pushed a backup), rather than throwing.
+async function downloadTextFromOneDrive(path, tokenFn){
+  const token = await (tokenFn || getGraphToken)();
+  const encodedPath = encodeGraphPath(path);
+  const resp = await fetch(`https://graph.microsoft.com/v1.0/me/drive/root:/${encodedPath}:/content`, {
+    headers: { 'Authorization': 'Bearer ' + token }
+  });
+  if(resp.status === 404) return null;
+  if(!resp.ok) throw new Error('OneDrive download failed (HTTP ' + resp.status + ')');
+  return await resp.text();
+}
+
+// Pulls the latest state backup DOWN from OneDrive and makes it this device's
+// local state. Without this, nothing changed on one device (removing demo data,
+// importing a public TC request, etc.) was ever retrievable on another device —
+// each device only ever pushed its own local state up as a backup, and "Force
+// Reload" used to just re-read this same browser's own localStorage. Pass
+// {silent:true} for background/startup calls, which skips the OneDrive login
+// popup if the cached token can't be silently refreshed (fails quietly instead).
+// Returns true if a remote backup was found and applied.
+async function loadStateFromOneDrive(opts){
+  const tokenFn = (opts && opts.silent) ? getGraphTokenSilent : getGraphToken;
+  const json = await downloadTextFromOneDrive(`${CONFIG.MS_GRAPH.FOLDER}/dashboard-state.json`, tokenFn);
+  if(!json) return false;
+  JSON.parse(json); // validate before touching anything persisted
+  localStorage.setItem(LS_KEY, json);
+  loadState();
+  return true;
+}
+
+
 /* ============================================================
    PUBLIC TEMP. CONNECTION REQUEST SYNC (Google Apps Script)
    ------------------------------------------------------------
@@ -414,35 +459,48 @@ async function syncPublicTempConnectionRequests({ silent } = {}){
   if(tcSyncInFlight) return;
   tcSyncInFlight = true;
   try{
+    // Pull the latest cross-device state first. Without this, a request already
+    // imported (and marked Synced on the Sheet) by another device would never
+    // show up here — this device's local copy would just be missing it forever,
+    // since fetchPendingTcRequests() only ever returns requests still Pending.
+    let pulledFromOneDrive = false;
+    if(isOneDriveConnected()){
+      try{ pulledFromOneDrive = await loadStateFromOneDrive(); }
+      catch(e){ console.error('Pre-sync OneDrive pull failed, continuing with local state', e); }
+    }
+
     const pending = await fetchPendingTcRequests();
     if(!pending.length){
+      if(pulledFromOneDrive) render(); // reflect anything pulled down even if nothing new is pending on the Sheet
       if(!silent) toast('No new temporary connection requests.');
       return;
     }
 
     STATE.tempConnections = STATE.tempConnections || [];
     const existingIds = new Set(STATE.tempConnections.map(r=>r.id));
-    const idsToMarkSynced = [];
     let importedCount = 0;
 
+    // Deliberately NOT calling markTcRequestsSynced() here. A request only gets
+    // marked Synced on the Sheet once it's actually approved or rejected in the
+    // app (see issue()/reject() on the Approver page) — so until then, the Sheet
+    // keeps reporting it as Pending and every device's sync will keep finding it.
+    // The existingIds check above still prevents re-importing a duplicate once
+    // one device already has it locally.
     pending.forEach(record=>{
       if(!existingIds.has(record.id)){
         STATE.tempConnections.push(record);
         existingIds.add(record.id);
         importedCount++;
       }
-      idsToMarkSynced.push(record.id); // mark synced regardless, so a half-completed prior sync doesn't loop forever
     });
 
-    if(idsToMarkSynced.length){
-      await markTcRequestsSynced(idsToMarkSynced);
-    }
     if(importedCount > 0){
       saveState();
       render();
       toast(`Imported ${importedCount} new temporary connection request${importedCount===1?'':'s'}.`, {duration:6000});
-    } else if(!silent){
-      toast('Requests were already up to date.');
+    } else {
+      if(pulledFromOneDrive) render(); // reflect anything pulled down (e.g. approvals done elsewhere) even with nothing new to import
+      if(!silent) toast('Requests were already up to date.');
     }
   }catch(err){
     console.error('syncPublicTempConnectionRequests failed', err);
@@ -620,9 +678,7 @@ const SEED_TEMPLATES = [
     reminderLeadDays:7, reminderRepeatDays:14, reminderRecipients:'',
     assetFields:[
       {key:'assetNo', label:'ELCB / Equipment Identification / Location', type:'text', required:true},
-      {key:'noOfElcb', label:'No. of ELCB', type:'text'},
       {key:'department', label:'Department / Section', type:'text'},
-      {key:'area', label:'Area', type:'text'},
       {key:'contractor', label:'Contractor / Agency', type:'text'}
     ],
     checklistItems:[
@@ -639,9 +695,7 @@ const SEED_TEMPLATES = [
     reminderLeadDays:7, reminderRepeatDays:14, reminderRecipients:'',
     assetFields:[
       {key:'assetNo', label:'ELCB / Equipment Identification / Location', type:'text', required:true},
-      {key:'noOfElcb', label:'No. of ELCB', type:'text'},
       {key:'department', label:'Department / Section', type:'text'},
-      {key:'area', label:'Area', type:'text'},
       {key:'contractor', label:'Contractor / Agency', type:'text'}
     ],
     checklistItems:[
@@ -1479,6 +1533,16 @@ window.addEventListener('DOMContentLoaded', ()=>{
   if(!currentUser()){ renderLogin(); return; }
   loadState(); render();
   startTcAutoSync();
+  // Best-effort background pull so this device picks up anything saved from
+  // another device (demo data removed, a TC request approved, a new inspection,
+  // etc.) since this browser's own localStorage was last updated. Silent-only:
+  // if the cached OneDrive session can't be refreshed without a popup, this
+  // just quietly skips rather than interrupting startup with a sign-in prompt.
+  if(isOneDriveConnected()){
+    loadStateFromOneDrive({ silent:true })
+      .then(found=>{ if(found) render(); })
+      .catch(()=>{ /* keep whatever loaded from local storage above */ });
+  }
 });
 
 /* ============================================================
@@ -2179,7 +2243,18 @@ route('/sync', ()=>{
           : null,
         connected ? el('button', {class:'btn btn-ghost', onclick:()=>{ syncStateToOneDrive(JSON.stringify(STATE)).then(()=>toast('Synced to OneDrive.')).catch(e=>toast('Sync failed: '+(e&&e.message||'unknown error'), {duration:8000})); }}, ['Sync now']) : null,
         hasRole('user') ? el('button', {class:'btn btn-primary', onclick:()=>{ saveState(); toast('State saved.'); }}, ['Force Save']) : null,
-        hasRole('user') ? el('button', {class:'btn btn-ghost', onclick:()=>{ loadState(); render(); toast('State reloaded.'); }}, ['Force Reload']) : null,
+        hasRole('user') ? el('button', {class:'btn btn-ghost', onclick:()=>{
+          if(connected){
+            loadStateFromOneDrive()
+              .then(found=>{
+                render();
+                toast(found ? 'Pulled the latest state from OneDrive.' : 'No OneDrive backup found yet — reloaded this device\'s local data.');
+              })
+              .catch(e=>{ loadState(); render(); toast('Could not reach OneDrive (' + (e&&e.message||'unknown error') + ') — reloaded this device\'s local data instead.', {duration:8000}); });
+          } else {
+            loadState(); render(); toast('State reloaded from this device\'s local storage. Connect OneDrive to pull updates made on other devices.');
+          }
+        }}, ['Force Reload']) : null,
         el('button', {class:'btn btn-ghost', onclick:exportExcel}, ['Export to Excel (CSV bundle)']),
         hasRole('admin') ? el('button', {class:'btn btn-danger', onclick:()=>requireRole('admin', ()=>{ if(confirm('Reset ALL data back to the seeded templates? This cannot be undone.')){ localStorage.removeItem(LS_KEY); loadState(); render(); toast('Data reset.'); } })}, ['Reset to seed data']) : null
       ])
@@ -2242,6 +2317,9 @@ function deleteTcRequest(r, opts){
   const backup = r;
   STATE.tempConnections = STATE.tempConnections.filter(x=>x.id!==r.id);
   saveState();
+  // Otherwise the next public sync would just re-import it right back, since the
+  // Sheet would still be reporting it as Pending.
+  markTcRequestsSynced([r.id]).catch(e=> console.error('markTcRequestsSynced failed (non-fatal)', e));
   toast('Request deleted.', {undo:()=>{ STATE.tempConnections.push(backup); saveState(); render(); }});
   if(opts.after) opts.after(); else render();
 }
@@ -2598,6 +2676,10 @@ route('/temp-connection/approve/:id', ({params})=>{
       req.status = 'Issued';
       req.issuedAt = new Date().toISOString();
       saveState();
+      // Only now that the request is actually resolved do we tell the public-form
+      // Sheet to stop reporting it as Pending — see syncPublicTempConnectionRequests()
+      // for why this is deferred until resolution rather than done at import time.
+      markTcRequestsSynced([req.id]).catch(e=> console.error('markTcRequestsSynced failed (non-fatal)', e));
       // Only now — once approved — is the requisition PDF generated and saved.
       await generateAndStoreTcPdf(req);
       saveState();
@@ -2607,6 +2689,7 @@ route('/temp-connection/approve/:id', ({params})=>{
       const reason = prompt('Reason for rejection (optional):') || '';
       req.status = 'Rejected'; req.rejectReason = reason; req.issuedAt = new Date().toISOString();
       saveState();
+      markTcRequestsSynced([req.id]).catch(e=> console.error('markTcRequestsSynced failed (non-fatal)', e));
       toast('Request rejected.');
       navigate('/temp-connection/approve');
     }
@@ -3324,23 +3407,28 @@ function openInspectionModal(t, a){
   // instead of just the one covered by the generic checklist form above.
   let elcbRows = [];
   const elcbRowsBody = el('div', {class:'elcb-rows-body'});
-  const elcbColTemplate = '40px 1.5fr 80px 100px 100px 100px 100px 1.2fr 36px';
+  const elcbColTemplate = '40px 1.8fr 100px 100px 100px 100px 1.2fr 36px';
+  const elcbCountLabel = el('span', {class:'font-semibold'}, ['0']);
+  function updateElcbCount(){
+    const count = elcbRows.filter(r=> r.location.value.trim()).length;
+    elcbCountLabel.textContent = String(count);
+  }
   function elcbRenumber(){
     Array.from(elcbRowsBody.children).forEach((rowEl, idx)=>{
       const slSpan = rowEl.querySelector('.elcb-sl');
       if(slSpan) slSpan.textContent = String(idx+1);
     });
+    updateElcbCount();
   }
   function addElcbRow(initial){
     initial = initial || {};
-    const location = el('input', {value: initial.location||'', placeholder:'Location'});
-    const noOfElcb = el('input', {value: initial.noOfElcb||'', placeholder:'No.'});
+    const location = el('input', {value: initial.location||'', placeholder:'Location', oninput: ()=> updateElcbCount()});
     const injNormal = el('input', {type:'number', placeholder:'mA'});
     const tripNormal = el('input', {type:'number', placeholder:'ms'});
     const injHigher = el('input', {type:'number', placeholder:'mA'});
     const tripHigher = el('input', {type:'number', placeholder:'ms'});
     const remarks = el('input', {placeholder:'Remarks'});
-    const rowData = { location, noOfElcb, injNormal, tripNormal, injHigher, tripHigher, remarks };
+    const rowData = { location, injNormal, tripNormal, injHigher, tripHigher, remarks };
     const removeBtn = el('button', {
       class:'btn btn-danger', style:'padding:.2rem .5rem; font-size:.75rem;', title:'Remove row',
       onclick:()=>{
@@ -3353,18 +3441,18 @@ function openInspectionModal(t, a){
     }, ['✕']);
     const rowEl = el('div', {class:'elcb-row', style:'display:grid; grid-template-columns:'+elcbColTemplate+'; gap:6px; align-items:center; padding:6px 0; border-bottom:1px solid #eef1f5;'}, [
       el('span', {class:'elcb-sl text-slate-400 text-sm text-center'}, [String(elcbRows.length+1)]),
-      location, noOfElcb, injNormal, tripNormal, injHigher, tripHigher, remarks, removeBtn
+      location, injNormal, tripNormal, injHigher, tripHigher, remarks, removeBtn
     ]);
     elcbRows.push(rowData);
     elcbRowsBody.appendChild(rowEl);
+    updateElcbCount();
   }
   if(isElcb){
-    addElcbRow({ location: a.fieldValues.assetNo||'', noOfElcb: a.fieldValues.noOfElcb||'' });
+    addElcbRow({ location: a.fieldValues.assetNo||'' });
   }
   const elcbHeaderRow = el('div', {style:'display:grid; grid-template-columns:'+elcbColTemplate+'; gap:6px; padding:6px 0; border-bottom:2px solid #dbe1ea; font-size:.7rem; font-weight:700; color:#8a94a6; text-transform:uppercase; letter-spacing:.02em;'}, [
     el('span', {class:'text-center'}, ['Sl.No']),
     el('span', {}, ['ELCB Identification / Location']),
-    el('span', {}, ['No. of ELCB']),
     el('span', {}, ['Normal — Injected (mA)']),
     el('span', {}, ['Normal — Tripping (ms)']),
     el('span', {}, ['Higher — Injected (mA)']),
@@ -3374,13 +3462,13 @@ function openInspectionModal(t, a){
   ]);
   const addElcbRowBtn = el('button', {class:'btn btn-ghost w-full mt-2', onclick:()=>{ addElcbRow(); }}, ['+ Add ELCB']);
   const elcbTableWrap = el('div', {class:'overflow-x-auto border border-slate-200 rounded-xl p-3'}, [
-    el('div', {style:'min-width:820px;'}, [elcbHeaderRow, elcbRowsBody]),
+    el('div', {style:'min-width:760px;'}, [elcbHeaderRow, elcbRowsBody]),
   ]);
 
   function buildInspectionObj(){
     const obj = {
       id: uid('insp'), assetId: a.id, templateId: t.id,
-      date: dateInput.value, department: deptInput.value, area: areaInput.value,
+      date: dateInput.value, department: deptInput.value, area: isElcb ? '' : areaInput.value,
       contractor: contractorInput.value, contractorName: contractorNameInput.value, inspector: inspectorInput.value,
       observations: obsInput.value, correctiveActions: correctiveInput.value,
       answers: isElcb ? [] : t.checklistItems.map(it=> ({ itemNo: it.no, description: it.description, answer: (answers[it.no]||{}).answer||'', remark: (answers[it.no]||{}).remark||'' })),
@@ -3391,11 +3479,14 @@ function openInspectionModal(t, a){
     };
     if(isElcb){
       obj.elcbRows = elcbRows.map(r=> ({
-        location: r.location.value.trim(), noOfElcb: r.noOfElcb.value.trim(),
+        location: r.location.value.trim(),
         injNormal: r.injNormal.value, tripNormal: r.tripNormal.value,
         injHigher: r.injHigher.value, tripHigher: r.tripHigher.value,
         remarks: r.remarks.value.trim()
-      })).filter(r=> r.location || r.noOfElcb || r.injNormal || r.tripNormal || r.injHigher || r.tripHigher || r.remarks);
+      })).filter(r=> r.location || r.injNormal || r.tripNormal || r.injHigher || r.tripHigher || r.remarks);
+      // No. of ELCB is derived directly from how many rows were actually filled in
+      // this checklist — there's no separate manual entry for it any more.
+      obj.noOfElcb = obj.elcbRows.length;
     }
     return obj;
   }
@@ -3561,7 +3652,13 @@ function openInspectionModal(t, a){
       el('div', {class:'grid sm:grid-cols-2 gap-4 mb-4'}, [
         labeled('Inspection Date *', dateInput), labeled('Department / Section', deptInput)
       ]),
-      el('div', {class:'grid sm:grid-cols-2 gap-4 mb-4'}, [
+      el('div', {class:'grid sm:grid-cols-2 gap-4 mb-4'}, isElcb ? [
+        el('div', {}, [
+          el('div', {class:'text-xs font-semibold text-slate-400 uppercase tracking-wide'}, ['No. of ELCB']),
+          el('div', {class:'font-semibold text-sm'}, ['Auto-calculated from checklist entries below: ', elcbCountLabel])
+        ]),
+        labeled('Contractor / Agency', contractorInput)
+      ] : [
         labeled('Area', areaInput), labeled('Contractor / Agency', contractorInput)
       ]),
       el('div', {class:'mb-4'}, [
@@ -3863,20 +3960,36 @@ function generateElcbPdf(t, a, insp){
   doc.line(pageW/2 - titleW/2, y+3, pageW/2 + titleW/2, y+3);
   y += 32;
 
+  // Row data — prefer the multi-row ELCB table (one Sl. No. per unit tested);
+  // fall back to the legacy single-row shape for inspections saved before it existed.
+  let rows = Array.isArray(insp.elcbRows) && insp.elcbRows.length ? insp.elcbRows : null;
+  if(!rows){
+    const ansByNo = {}; (insp.answers||[]).forEach(r=> ansByNo[r.itemNo]=r);
+    rows = [{
+      location: a.fieldValues.assetNo||'',
+      injNormal: (ansByNo[1]||{}).answer||'', tripNormal: (ansByNo[2]||{}).answer||'',
+      injHigher: (ansByNo[3]||{}).answer||'', tripHigher: (ansByNo[4]||{}).answer||'',
+      remarks: [1,2,3,4].map(n=>(ansByNo[n]||{}).remark).filter(Boolean).join('; ')
+    }];
+  }
+  // No. of ELCB is simply the count of checklist rows actually filled in — no separate
+  // manual field any more.
+  const noOfElcbCount = (typeof insp.noOfElcb === 'number') ? insp.noOfElcb : rows.filter(r=>r.location).length;
+
   // Header fields
   doc.setFont('helvetica','normal'); doc.setFontSize(10);
   doc.text(`Department / Section: ${insp.department||''}`, marginL, y);
-  doc.text(`Area: ${insp.area||''}`, marginL+280, y);
+  doc.text(`No. of ELCB: ${noOfElcbCount}`, marginL+280, y);
   doc.text(`Date: ${fmtDate(insp.date)}`, marginL+420, y);
   y += 20;
   doc.text(`Contractor/Agency: ${insp.contractor||''}`, marginL, y); y += 26;
 
-  // Table geometry: Sl.No | ELCB Identification/Location | No. of ELCB |
+  // Table geometry: Sl.No | ELCB Identification/Location |
   // [Test at Normal Current: Injected / Tripping] | [Test at Higher Current: Injected / Tripping] | Remarks
-  const colW = { sl:24, loc:125, noElcb:48, inj1:55, trip1:62, inj2:55, trip2:62 };
-  colW.remarks = usableW - (colW.sl+colW.loc+colW.noElcb+colW.inj1+colW.trip1+colW.inj2+colW.trip2);
+  const colW = { sl:24, loc:150, inj1:58, trip1:65, inj2:58, trip2:65 };
+  colW.remarks = usableW - (colW.sl+colW.loc+colW.inj1+colW.trip1+colW.inj2+colW.trip2);
   const colX = {}; let rx = marginL;
-  ['sl','loc','noElcb','inj1','trip1','inj2','trip2','remarks'].forEach(k=>{ colX[k]=rx; rx+=colW[k]; });
+  ['sl','loc','inj1','trip1','inj2','trip2','remarks'].forEach(k=>{ colX[k]=rx; rx+=colW[k]; });
   const rightEdge = marginL + usableW;
 
   const groupH = 18, subH = 34; // merged group-title row height, sub-header row height
@@ -3894,13 +4007,12 @@ function generateElcbPdf(t, a, insp){
     const hBottom = startY + headerH;
     doc.setLineWidth(0.75);
     doc.rect(marginL, startY, usableW, headerH);
-    [colX.loc, colX.noElcb, colX.inj1, colX.inj2, colX.remarks].forEach(x=> doc.line(x, startY, x, hBottom));
+    [colX.loc, colX.inj1, colX.inj2, colX.remarks].forEach(x=> doc.line(x, startY, x, hBottom));
     [colX.trip1, colX.trip2].forEach(x=> doc.line(x, startY+groupH, x, hBottom));
     doc.line(colX.inj1, startY+groupH, colX.remarks, startY+groupH);
     doc.setFont('helvetica','bold'); doc.setFontSize(8);
     centeredText('Sl. No.', colX.sl+colW.sl/2, startY+headerH/2, colW.sl-4);
     centeredText('ELCB IDENTIFICATION / LOCATION', colX.loc+colW.loc/2, startY+headerH/2, colW.loc-6);
-    centeredText('No. of ELCB', colX.noElcb+colW.noElcb/2, startY+headerH/2, colW.noElcb-4);
     centeredText('TEST AT NORMAL CURRENT', colX.inj1+(colW.inj1+colW.trip1)/2, startY+groupH/2, colW.inj1+colW.trip1-6);
     centeredText('TEST AT HIGHER CURRENT', colX.inj2+(colW.inj2+colW.trip2)/2, startY+groupH/2, colW.inj2+colW.trip2-6);
     centeredText('REMARKS', colX.remarks+colW.remarks/2, startY+headerH/2, colW.remarks-6);
@@ -3912,18 +4024,6 @@ function generateElcbPdf(t, a, insp){
     return hBottom;
   }
 
-  // Row data — prefer the multi-row ELCB table (one Sl. No. per unit tested);
-  // fall back to the legacy single-row shape for inspections saved before it existed.
-  let rows = Array.isArray(insp.elcbRows) && insp.elcbRows.length ? insp.elcbRows : null;
-  if(!rows){
-    const ansByNo = {}; (insp.answers||[]).forEach(r=> ansByNo[r.itemNo]=r);
-    rows = [{
-      location: a.fieldValues.assetNo||'', noOfElcb: a.fieldValues.noOfElcb||'',
-      injNormal: (ansByNo[1]||{}).answer||'', tripNormal: (ansByNo[2]||{}).answer||'',
-      injHigher: (ansByNo[3]||{}).answer||'', tripHigher: (ansByNo[4]||{}).answer||'',
-      remarks: [1,2,3,4].map(n=>(ansByNo[n]||{}).remark).filter(Boolean).join('; ')
-    }];
-  }
   const totalDataRows = Math.max(rows.length, 8); // keep a few blank rows, matching the paper form
 
   let segmentTop = y;
@@ -3941,12 +4041,11 @@ function generateElcbPdf(t, a, insp){
     const r = rows[i] || {};
     const rowBottom = rowTop + dataRowH;
     doc.setLineWidth(0.75);
-    [colX.sl,colX.loc,colX.noElcb,colX.inj1,colX.trip1,colX.inj2,colX.trip2,colX.remarks,rightEdge].forEach(x=> doc.line(x, rowTop, x, rowBottom));
+    [colX.sl,colX.loc,colX.inj1,colX.trip1,colX.inj2,colX.trip2,colX.remarks,rightEdge].forEach(x=> doc.line(x, rowTop, x, rowBottom));
     doc.line(marginL, rowBottom, rightEdge, rowBottom);
     const cy = rowTop + dataRowH/2 + 3;
     doc.text(String(i+1), colX.sl+colW.sl/2, cy, {align:'center'});
     doc.text(doc.splitTextToSize(String(r.location||''), colW.loc-8), colX.loc+4, rowTop+13);
-    doc.text(String(r.noOfElcb||''), colX.noElcb+colW.noElcb/2, cy, {align:'center'});
     doc.text(String(r.injNormal||''), colX.inj1+colW.inj1/2, cy, {align:'center'});
     doc.text(String(r.tripNormal||''), colX.trip1+colW.trip1/2, cy, {align:'center'});
     doc.text(String(r.injHigher||''), colX.inj2+colW.inj2/2, cy, {align:'center'});
