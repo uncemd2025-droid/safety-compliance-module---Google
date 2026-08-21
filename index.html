@@ -1286,7 +1286,11 @@ function el(tag, attrs, children){
   }
   (children||[]).forEach(c=>{
     if(c===null||c===undefined) return;
-    node.appendChild(typeof c==='string' ? document.createTextNode(c) : c);
+    // Only treat real DOM nodes as nodes — anything else (number, boolean, etc.)
+    // gets stringified into a text node. Public-form data synced in from Google
+    // Sheets can come back as numbers (e.g. Employee No.), and appendChild()
+    // throws on a raw number, which silently broke the whole page render.
+    node.appendChild(c instanceof Node ? c : document.createTextNode(String(c)));
   });
   return node;
 }
