@@ -2585,8 +2585,11 @@ route('/temp-connection/approve', ()=>{
   const recentRows = recent.map(r=> [
     r.location, r.applicantName, r.slNo||'—', tcStatusPill(tcDisplayStatus(r)), r.issuedAt ? fmtDate(r.issuedAt) : fmtDate(r.submittedAt),
     el('div', {class:'flex gap-2'}, [
-      r.oneDriveUrl ? el('button', {class:'btn btn-ghost', style:'padding:.25rem .6rem;', onclick:()=>showPdfPreviewFromUrl(r.oneDriveUrl, `TempConnection_${(r.slNo||r.id)}.pdf`)}, ['View PDF'])
-        : (r.status==='Issued' ? el('button', {class:'btn btn-ghost', style:'padding:.25rem .6rem;', onclick:()=>showPdfPreview(generateTempConnectionPdf(r), `TempConnection_${(r.slNo||r.id)}.pdf`)}, ['View PDF']) : null),
+      // Regenerated client-side rather than fetched from the stored OneDrive URL —
+      // that URL needs an authenticated OneDrive session, so opening it directly
+      // in an unauthenticated fetch/iframe just bounced out to onedrive.com.
+      // Regenerating is deterministic from the same request data and always works.
+      r.status==='Issued' ? el('button', {class:'btn btn-ghost', style:'padding:.25rem .6rem;', onclick:()=>showPdfPreview(generateTempConnectionPdf(r), `TempConnection_${(r.slNo||r.id)}.pdf`)}, ['View PDF']) : null,
       hasRole('admin') ? el('button', {class:'btn btn-danger', style:'padding:.25rem .6rem;', onclick:()=>deleteTcRequest(r, {after:render})}, ['Delete']) : null
     ])
   ]);
@@ -2635,9 +2638,7 @@ route('/temp-connection/approve/:id', ({params})=>{
     el('p', {}, [el('b',{},['Requirement: ']), req.requirement||'—']),
     el('p', {}, [el('b',{},['Requested period: ']), fmtDate(req.periodFrom)+' → '+fmtDate(req.periodTo)]),
     req.status==='Issued' ? el('div', {class:'mt-2 flex gap-2'}, [
-      req.oneDriveUrl
-        ? el('button', {class:'btn btn-ghost', onclick:()=>showPdfPreviewFromUrl(req.oneDriveUrl, `TempConnection_${(req.slNo||req.id)}.pdf`)}, ['View PDF'])
-        : el('button', {class:'btn btn-ghost', onclick:()=>showPdfPreview(generateTempConnectionPdf(req), `TempConnection_${(req.slNo||req.id)}.pdf`)}, ['View PDF'])
+      el('button', {class:'btn btn-ghost', onclick:()=>showPdfPreview(generateTempConnectionPdf(req), `TempConnection_${(req.slNo||req.id)}.pdf`)}, ['View PDF'])
     ]) : el('p', {class:'text-xs text-slate-400 mt-2'}, ['The requisition PDF is generated and saved to OneDrive once this request is approved and issued.'])
   ]);
 
@@ -2775,11 +2776,9 @@ route('/temp-connection/register', ()=>{
       r.slNo||'—', r.location, r.applicantName, r.department, (r.purposes||[]).join(', '),
       r.periodTo ? fmtDate(r.periodTo) : '—', tcStatusPill(tcDisplayStatus(r)),
       el('div', {class:'flex gap-2'}, [
-        r.oneDriveUrl
-          ? el('button', {class:'btn btn-ghost', style:'padding:.25rem .6rem;', onclick:()=>showPdfPreviewFromUrl(r.oneDriveUrl, `TempConnection_${(r.slNo||r.id)}.pdf`)}, ['View PDF'])
-          : (r.status==='Issued' || r.status==='Closed'
-              ? el('button', {class:'btn btn-ghost', style:'padding:.25rem .6rem;', onclick:()=>showPdfPreview(generateTempConnectionPdf(r), `TempConnection_${(r.slNo||r.id)}.pdf`)}, ['View PDF'])
-              : el('span', {class:'text-xs text-slate-400'}, ['—'])),
+        (r.status==='Issued' || r.status==='Closed')
+          ? el('button', {class:'btn btn-ghost', style:'padding:.25rem .6rem;', onclick:()=>showPdfPreview(generateTempConnectionPdf(r), `TempConnection_${(r.slNo||r.id)}.pdf`)}, ['View PDF'])
+          : el('span', {class:'text-xs text-slate-400'}, ['—']),
         hasRole('admin') ? el('button', {class:'btn btn-danger', style:'padding:.25rem .6rem;', onclick:()=>deleteTcRequest(r, {after:renderTable})}, ['Delete']) : null
       ])
     ], {initialSortIdx:5, initialSortDir:-1}); // default: newest "valid up to" first, matches prior sort-by-submitted behavior
@@ -3330,8 +3329,10 @@ route('/assets/:templateId/:assetId', ({params})=>{
       fmtDate(h.date),
       h.inspector || '—',
       el('button', {class:'btn btn-ghost', style:'padding:.25rem .6rem;', onclick:()=>{
-        if(h.oneDriveUrl) showPdfPreviewFromUrl(h.oneDriveUrl, `${t.name}_${h.date}.pdf`);
-        else showPdfPreview(generatePDF(t,a,h), `${t.name}_${h.date}.pdf`);
+        // Regenerated client-side rather than fetched from the stored OneDrive URL,
+        // which needs an authenticated OneDrive session and would otherwise just
+        // bounce out to onedrive.com in a new tab instead of showing the in-app preview.
+        showPdfPreview(generatePDF(t,a,h), `${t.name}_${h.date}.pdf`);
       }}, ['View PDF'])
     ])
   ) : null;
@@ -4129,29 +4130,13 @@ function showPdfPreview(dataUri, filename){
   bg.appendChild(box); document.body.appendChild(bg);
 }
 
-// Opens a preview popup for a PDF that already lives at a URL (e.g. OneDrive) —
-// fetches the bytes so it can render in the same in-app viewer rather than a
-// separate browser tab, with the same Download button inside the popup.
-async function showPdfPreviewFromUrl(url, filename){
-  try{
-    const resp = await fetch(url);
-    if(!resp.ok) throw new Error('HTTP ' + resp.status);
-    const blob = await resp.blob();
-    const reader = new FileReader();
-    reader.onload = ()=> showPdfPreview(reader.result, filename);
-    reader.onerror = ()=> { window.open(url, '_blank'); };
-    reader.readAsDataURL(blob);
-  }catch(e){
-    // Cross-origin/auth restrictions on the stored file — fall back to opening it directly.
-    window.open(url, '_blank');
-  }
-}
 function regeneratePdf(t,a,insp){
-  // Deprecated: PDFs are now viewed via showPdfPreview()/showPdfPreviewFromUrl()
+  // Deprecated: PDFs are now viewed via showPdfPreview() (regenerated client-side)
   // instead of being force-downloaded. Kept only for any external callers.
   const uri = generatePDF(t,a,insp);
   showPdfPreview(uri, `${t.name}_${insp.date}.pdf`);
 }
+
 
 /* ============================================================
    RENDER DISPATCH
