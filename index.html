@@ -139,6 +139,7 @@
   .login-field svg{flex-shrink:0; width:1.3cqw; height:1.3cqw; min-width:14px; min-height:14px; max-width:18px; max-height:18px; color:#8a94a3;}
   .login-field input{border:none; outline:none; flex:1; min-width:0; width:100%; padding:0; margin:0; font-size:1.02cqw; line-height:1.2; font-family:inherit; color:#1e293b; background:transparent; height:100%;}
   .login-field input::placeholder{color:#9aa3b0;}
+  .login-field select{border:none; outline:none; appearance:none; -webkit-appearance:none; -moz-appearance:none; flex:1; min-width:0; width:100%; padding:0; margin:0; font-size:1.35cqw; line-height:1.2; font-family:inherit; color:#1e293b; background:transparent; height:100%; cursor:pointer;}
   .login-field .eye-toggle{background:none; border:none; padding:0; cursor:pointer; color:#8a94a3; display:flex; flex-shrink:0;}
   .login-row{display:flex; align-items:center; justify-content:space-between; font-size:.95cqw;}
   .login-row label{display:flex; align-items:center; gap:.5cqw; color:#334155; cursor:pointer; font-size:.95cqw;}
@@ -198,6 +199,7 @@
     .login-field{padding:0 14px; height:44px; gap:10px; border-radius:10px;}
     .login-field svg{width:18px; height:18px;}
     .login-field input{font-size:14px; padding:0;}
+    .login-field select{font-size:17px; padding:0;}
     .login-row, .login-row label, .login-row a{font-size:13px;}
     .login-row input[type=checkbox]{width:15px; height:15px;}
     .login-btn{height:44px; font-size:14px; border-radius:10px;}
@@ -326,6 +328,15 @@ function dataUriToBytes(dataUri){
   return bytes;
 }
 
+// Per-app-user OneDrive subfolder name (not the signed-in Microsoft account —
+// the app's own login username). Each user's data backup and PDFs are kept in
+// their own "Users/<username>" folder so they don't all land mixed together.
+// Falls back to 'shared' if somehow called with nobody signed in.
+function userFolderName(){
+  const u = currentUser();
+  return (u && u.username) ? u.username.replace(/[^a-z0-9._-]+/gi,'_') : 'shared';
+}
+
 // Uploads raw bytes to OneDrive at the given path (relative to the signed-in
 // user's drive root) — Graph creates any missing folders in the path automatically.
 // Files ≤4MB go through a single PUT; larger files (e.g. PDFs with embedded
@@ -375,9 +386,19 @@ async function uploadBytesToOneDrive(path, bytes, mimeType){
 }
 
 // Pushes the full app state to OneDrive as a rolling JSON backup (overwritten
-// on every save — same behaviour the old GAS_URL sync had).
+// on every save — same behaviour the old GAS_URL sync had). This is the single
+// shared master copy every device reads on startup/sync, so admin (and anyone
+// with cross-checklist access) always sees the full combined dataset.
+//
+// Alongside it, we also drop a personal rolling copy at Users/<username>/ —
+// this is a per-user backup/audit trail, not a separate source of truth: the
+// app always loads from the shared master file above, never from a personal
+// folder.
 async function syncStateToOneDrive(json){
   await uploadBytesToOneDrive(`${CONFIG.MS_GRAPH.FOLDER}/dashboard-state.json`, new TextEncoder().encode(json), 'application/json');
+  try{
+    await uploadBytesToOneDrive(`${CONFIG.MS_GRAPH.FOLDER}/Users/${userFolderName()}/my-data-backup.json`, new TextEncoder().encode(json), 'application/json');
+  }catch(e){ /* personal backup copy is best-effort; the shared master above already succeeded */ }
 }
 
 // Downloads raw text content from OneDrive at the given path (relative to the
@@ -917,15 +938,57 @@ function loadState(){
     saveState();
   }
   STATE.tempConnections = STATE.tempConnections || []; // backward-compat for sessions saved before this feature existed
+  ensureUsersMigrated();
   seedDemoChecklistData();
   if(STATE.assets.length && STATE.inspections.length) saveState();
 }
 
-// Demo data: populated only when the app has no assets/inspections yet.
-// This keeps a fresh installation useful for demonstrations while never
-// overwriting real inspection data already entered by the user.
+// Users used to live only in CONFIG.USERS (hardcoded, admin couldn't manage them).
+// They now live in STATE.users so multiple named accounts can be created, and each
+// account can be scoped to a subset of checklists / Temp Electrical Connection access.
+// On first run (or upgrade from an older build) we seed STATE.users from CONFIG.USERS
+// so existing logins keep working, and grant admin/user full access by default so
+// nothing that used to be visible suddenly disappears.
+function ensureUsersMigrated(){
+  if(Array.isArray(STATE.users) && STATE.users.length){
+    // backfill fields that may be missing on users created by an older build
+    STATE.users.forEach(u=>{
+      if(!Array.isArray(u.assignedTemplateIds)) u.assignedTemplateIds = STATE.templates.map(t=>t.id);
+      if(typeof u.tcAccess !== 'boolean') u.tcAccess = (u.role !== 'viewer');
+      if(!u.id) u.id = 'u_' + Math.random().toString(36).slice(2,10);
+    });
+    return;
+  }
+  const allIds = STATE.templates.map(t=>t.id);
+  STATE.users = (CONFIG.USERS || []).map(u=>({
+    id: 'u_' + Math.random().toString(36).slice(2,10),
+    username: u.username,
+    password: u.password,
+    role: u.role,
+    label: u.label,
+    assignedTemplateIds: allIds.slice(),
+    tcAccess: u.role !== 'viewer'
+  }));
+  saveState();
+}
+
+function getUsers(){ return STATE.users || []; }
+function findUserByUsername(username){
+  return getUsers().find(u=> u.username.toLowerCase() === String(username||'').toLowerCase());
+}
+// Every currently-known checklist template's id — used as the "select all" default
+// when creating a brand-new user.
+function allTemplateIds(){ return STATE.templates.map(t=>t.id); }
+
+// Demo data: populated only once, the very first time the app runs, and never
+// again — even after every demo record has been deleted. (Previously this
+// only checked "are assets/inspections empty right now", so deleting all demo
+// data brought it right back on the next login/reload. A persistent flag on
+// STATE fixes that.)
 function seedDemoChecklistData(){
-  if((STATE.assets||[]).length || (STATE.inspections||[]).length) return;
+  if(STATE.demoSeeded) return;
+  if((STATE.assets||[]).length || (STATE.inspections||[]).length){ STATE.demoSeeded = true; return; }
+  STATE.demoSeeded = true;
 
   const today = new Date();
   const isoDate = d => {
@@ -1386,13 +1449,56 @@ function toast(msg, opts){
    AUTH — login page with 3 roles (Viewer / User / Admin), centralized
    role-check so gating logic lives in one place.
    ============================================================ */
+// The session only remembers WHICH user logged in (by username); their role,
+// checklist assignments and TC access always come fresh from STATE.users, so
+// changes an admin makes (revoking access, reassigning checklists) take effect
+// immediately without the affected user needing to log out and back in.
 function currentUser(){
   const raw = sessionStorage.getItem('ucim_user');
-  return raw ? JSON.parse(raw) : null;
+  if(!raw) return null;
+  let session;
+  try{ session = JSON.parse(raw); }catch(e){ return null; }
+  const live = findUserByUsername(session.username);
+  return live || null;
 }
 function currentRole(){ const u = currentUser(); return u ? u.role : null; }
 function hasRole(min){ const r = currentRole(); return !!r && ROLE_RANK[r] >= ROLE_RANK[min]; }
 function logout(){ sessionStorage.removeItem('ucim_user'); renderLogin(); }
+
+// Access-control helpers used to scope checklists and the Temp Electrical
+// Connection module to specific users, per admin assignment.
+function hasTemplateAccess(templateId){
+  const u = currentUser();
+  if(!u) return false;
+  if(u.role === 'admin') return true;
+  return Array.isArray(u.assignedTemplateIds) && u.assignedTemplateIds.includes(templateId);
+}
+function hasTcAccess(){
+  const u = currentUser();
+  if(!u) return false;
+  if(u.role === 'admin') return true;
+  return !!u.tcAccess;
+}
+// Templates the current user is allowed to see (admin sees every template).
+function visibleTemplates(){
+  const u = currentUser();
+  if(!u) return [];
+  if(u.role === 'admin') return STATE.templates;
+  return STATE.templates.filter(t=> Array.isArray(u.assignedTemplateIds) && u.assignedTemplateIds.includes(t.id));
+}
+// When the same checklist template is used by several users, each user should
+// only see the checklist entries (assets) they personally created — admin sees
+// everyone's. Assets created before this feature existed have no `createdBy`
+// and stay visible to everyone rather than silently disappearing.
+function canSeeAsset(a){
+  const u = currentUser();
+  if(!u) return false;
+  if(u.role === 'admin') return true;
+  return !a.createdBy || a.createdBy === u.username;
+}
+function visibleAssets(templateId){
+  return STATE.assets.filter(a=> a.templateId===templateId && canSeeAsset(a));
+}
 
 // Soft guard for click handlers: role is already established at login, so this just
 // blocks the action and explains why, rather than re-prompting for a password.
@@ -1407,21 +1513,31 @@ const LOGIN_BG_DATA_URL = 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2w
 function renderLogin(){
   const app = document.getElementById('app');
   clear(app);
+  // Load fresh so the username dropdown always reflects the current user list
+  // (including any user an admin just added) rather than a stale snapshot.
+  loadState();
 
   const userIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>';
   const lockIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>';
   const eyeIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7Z"/><circle cx="12" cy="12" r="3"/></svg>';
   const eyeOffIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 7 11 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.53 13.53 0 0 0 1 11s4 7 11 7a9.26 9.26 0 0 0 5.39-1.61"/><path d="m1 1 22 22"/><path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/></svg>';
 
-  const userInput = el('input', {placeholder:'Username', autocomplete:'username'});
+  // Username is a dropdown of every account that exists rather than free text —
+  // any user an admin creates automatically appears here on next render.
+  const userInput = el('select', {autocomplete:'username'}, [
+    el('option', {value:'', selected:'selected', disabled:'disabled'}, ['Select username']),
+    ...getUsers().map(u=> el('option', {value:u.username}, [(u.label && u.label.trim() && u.label.trim().toLowerCase()!==u.username.toLowerCase()) ? (u.username+' — '+u.label) : u.username]))
+  ]);
   const passInput = el('input', {type:'password', placeholder:'Password', autocomplete:'current-password'});
   const err = el('p', {class:'login-error hidden'}, ['Incorrect username or password.']);
 
   function attempt(){
-    const match = CONFIG.USERS.find(u=>u.username===userInput.value.trim() && u.password===passInput.value);
-    if(match){
-      sessionStorage.setItem('ucim_user', JSON.stringify({username:match.username, role:match.role, label:match.label}));
-      loadState();
+    // loadState() first so STATE.users (and any migration from CONFIG.USERS) is
+    // ready before we check credentials against it.
+    loadState();
+    const match = findUserByUsername(userInput.value.trim());
+    if(match && match.password===passInput.value){
+      sessionStorage.setItem('ucim_user', JSON.stringify({username:match.username}));
       location.hash = '/';
       render();
     } else { err.classList.remove('hidden'); }
@@ -1437,17 +1553,6 @@ function renderLogin(){
   });
 
   const remember = el('input', {type:'checkbox', id:'login-remember'});
-
-  const roleCard = (role,label,desc)=> el('button', {type:'button', class:'card p-3 text-left hover:shadow-md transition w-full', onclick:()=>{
-    const u = CONFIG.USERS.find(x=>x.role===role);
-    userInput.value = u.username; passInput.value = u.password; attempt();
-  }}, [
-    el('div', {class:'flex items-center justify-between'}, [
-      el('span', {class:'font-head font-bold text-sm'}, [label]),
-      el('span', {class:'role-chip role-'+role}, [role])
-    ]),
-    el('div', {class:'text-xs text-slate-400 mt-1'}, [desc])
-  ]);
 
   const loginCard = el('div', {class:'login-card'}, [
     err,
@@ -1474,16 +1579,7 @@ function renderLogin(){
   const loginShell = el('div', {class:'login-card-shell'}, [loginWrap]);
   const bgWrap = el('div', {class:'login-page-bg'}, [loginShell]);
 
-  const demo = el('div', {class:'login-demo'}, [
-    el('div', {class:'text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2 text-center'}, ['Quick demo sign-in']),
-    el('div', {class:'grid grid-cols-3 gap-2 max-w-md mx-auto'}, [
-      roleCard('viewer','Viewer','View only'),
-      roleCard('user','User','Create & edit'),
-      roleCard('admin','Admin','Full access')
-    ])
-  ]);
-
-  const wrap = el('div', {class:'min-h-screen page-fade', style:'padding-bottom:24px;'}, [bgWrap, demo, siteCopyright()]);
+  const wrap = el('div', {class:'min-h-screen page-fade', style:'padding-bottom:24px;'}, [bgWrap, siteCopyright()]);
   app.appendChild(wrap);
 }
 
@@ -1538,8 +1634,9 @@ function currentRoute(){
 }
 window.addEventListener('hashchange', render);
 window.addEventListener('DOMContentLoaded', ()=>{
+  loadState(); // must run first: currentUser() now resolves live off STATE.users
   if(!currentUser()){ renderLogin(); return; }
-  loadState(); render();
+  render();
   startTcAutoSync();
   // Best-effort background pull so this device picks up anything saved from
   // another device (demo data removed, a TC request approved, a new inspection,
@@ -1572,17 +1669,20 @@ function shell(contentNode){
     menuItem('/', 'bx-home-circle', 'Dashboard'),
     menuItem('/checklist', 'bx-list-check', 'Checklist'),
     hasRole('admin') ? menuItem('/templates', 'bx-cog', 'Templates') : null,
+    hasRole('admin') ? menuItem('/users', 'bx-user', 'Users') : null,
     menuItem('/reminders', 'bx-bell', 'Reminders'),
     menuItem('/sync', 'bx-refresh', 'Sync')
   ];
 
   // "New Request" now lives as a button on the Approver page (top right)
   // rather than as its own sidebar link. Register is listed first, then
-  // Approver.
-  const tempConnMenuItems = [
+  // Approver. The whole section — and, further down, the routes themselves —
+  // is only shown to users the admin has explicitly given TC access to.
+  const userHasTc = hasTcAccess();
+  const tempConnMenuItems = userHasTc ? [
     menuItem('/temp-connection/register', 'bx-table', 'Register'),
     hasRole('user') ? menuItem('/temp-connection/approve', 'bx-check-double', 'Approver') : null
-  ];
+  ] : [];
 
   const sidebarId = 'sneat-sidebar-el';
   const sidebar = el('aside', {class:'sneat-sidebar', id:sidebarId}, [
@@ -1597,7 +1697,7 @@ function shell(contentNode){
     el('nav', {class:'sneat-menu'}, [
       el('div', {class:'sneat-menu-label'}, ['Main']),
       ...menuItems,
-      el('div', {class:'sneat-menu-label'}, ['Temporary Electrical Connection']),
+      userHasTc ? el('div', {class:'sneat-menu-label'}, ['Temporary Electrical Connection']) : null,
       ...tempConnMenuItems
     ])
   ]);
@@ -1616,8 +1716,9 @@ function shell(contentNode){
     q = q.trim().toLowerCase();
     clear(searchResults);
     if(!q){ searchResults.style.display = 'none'; return; }
-    const tMatches = STATE.templates.filter(t=> t.name.toLowerCase().includes(q) || (t.category||'').toLowerCase().includes(q)).slice(0,5);
-    const aMatches = STATE.assets.filter(a=> JSON.stringify(a.fieldValues).toLowerCase().includes(q)).slice(0,6);
+    const visibleIds = new Set(visibleTemplates().map(t=>t.id));
+    const tMatches = STATE.templates.filter(t=> visibleIds.has(t.id) && (t.name.toLowerCase().includes(q) || (t.category||'').toLowerCase().includes(q))).slice(0,5);
+    const aMatches = STATE.assets.filter(a=> visibleIds.has(a.templateId) && canSeeAsset(a) && JSON.stringify(a.fieldValues).toLowerCase().includes(q)).slice(0,6);
     if(!tMatches.length && !aMatches.length){
       searchResults.appendChild(el('div', {class:'text-sm text-slate-400 p-3'}, ['No matches for "'+q+'".']));
       searchResults.style.display = 'block';
@@ -1658,17 +1759,26 @@ function shell(contentNode){
     });
   }
 
+  const connected = isOneDriveConnected();
+  const connDot = el('span', {
+    title: connected ? 'Connected to OneDrive — data syncs automatically.' : 'Not connected to OneDrive — data is saved locally on this device only.',
+    style:'display:inline-block; width:10px; height:10px; border-radius:50%; flex-shrink:0; background:'+(connected?'#22c55e':'#ef4444')+';'
+  });
+  const connStatus = connected
+    ? el('div', {class:'flex items-center gap-2', style:'font-size:.78rem; color:var(--sub);'}, [connDot, 'OneDrive connected'])
+    : el('a', {href:'#/sync', class:'flex items-center gap-2', style:'font-size:.78rem; color:var(--sub); text-decoration:none;', title:'Click to connect OneDrive'}, [connDot, 'OneDrive Not connected - Data saved locally']);
+
   const navbar = el('div', {class:'sneat-navbar'}, [
     el('div', {class:'px-4 sm:px-6 py-3 flex flex-wrap items-center gap-3 justify-between'}, [
       el('div', {class:'flex items-center gap-3'}, [
         mobileToggle,
         searchBox
       ]),
+      el('div', {class:'flex-1 text-center hidden md:block', style:'min-width:120px;'}, [
+        el('span', {class:'font-head font-semibold', style:'color:var(--ink); font-size:1.25rem;'}, ['Welcome back, '+(user.label||user.username)])
+      ]),
       el('div', {class:'flex items-center gap-3'}, [
-        el('div', {class:'text-right'}, [
-          el('div', {class:'text-sm font-semibold', style:'color:var(--ink); line-height:1.1;'}, [user.username]),
-          el('span', {class:'role-chip role-'+user.role}, [user.role])
-        ]),
+        connStatus,
         el('div', {style:'width:38px;height:38px;border-radius:50%;background:#e4ecfa;color:#0c4fc0;display:flex;align-items:center;justify-content:center;font-weight:700;'}, [user.username.slice(0,1).toUpperCase()]),
         el('button', {class:'btn btn-ghost', style:'padding:.4rem .8rem;', onclick:logout}, [el('i', {class:'bx bx-log-out'}), 'Log out'])
       ])
@@ -1975,16 +2085,16 @@ route('/', ()=>{
   // Assets per checklist group (bar)
   const groupCounts = {};
   GROUP_ORDER.concat(['Other']).forEach(g=> groupCounts[g]=0);
-  STATE.templates.forEach(t=>{
-    const n = STATE.assets.filter(a=>a.templateId===t.id).length;
+  visibleTemplates().forEach(t=>{
+    const n = visibleAssets(t.id).length;
     groupCounts[groupOf(t)] = (groupCounts[groupOf(t)]||0) + n;
   });
   const groupLabels = Object.keys(groupCounts).filter(g=> g!=='Other' || groupCounts[g]>0);
 
   // Status distribution across all assets (pie)
   let ok=0, dueSoon=0, overdue=0;
-  STATE.templates.forEach(t=>{
-    STATE.assets.filter(a=>a.templateId===t.id).forEach(a=>{
+  visibleTemplates().forEach(t=>{
+    visibleAssets(t.id).forEach(a=>{
       const s = statusFor(a,t);
       if(s.cls==='status-danger') overdue++; else if(s.cls==='status-warn-30') dueSoon++; else ok++;
     });
@@ -2000,7 +2110,7 @@ route('/', ()=>{
   const pieWrap = el('div', {class:'infographic-pie-wrap'});
 
   const statCards = el('div', {class:'grid sm:grid-cols-4 gap-4 mb-6'}, [
-    statCard('Templates', STATE.templates.length, 'status-none'),
+    statCard('Templates', visibleTemplates().length, 'status-none'),
     statCard('Total assets', totalAssets, 'status-none'),
     statCard('Due soon', dueSoon, 'status-warn-30', '#/reminders'),
     statCard('Overdue', overdue, 'status-danger', '#/reminders')
@@ -2110,7 +2220,7 @@ function statCard(label, value, cls, href){
 function renderChecklistPage(filterGroup){
   const groups = {};
   GROUP_ORDER.forEach(g=> groups[g]=[]);
-  STATE.templates.forEach(t=>{
+  visibleTemplates().forEach(t=>{
     const g = groupOf(t);
     if(filterGroup && g !== filterGroup) return;
     if(!groups[g]) groups[g]=[];
@@ -2119,7 +2229,7 @@ function renderChecklistPage(filterGroup){
 
   const sections = Object.keys(groups).filter(g=>groups[g].length).map(g=>{
     const rows = groups[g].map(t=>{
-      const assets = STATE.assets.filter(a=>a.templateId===t.id);
+      const assets = visibleAssets(t.id);
       let overdue=0, dueSoon=0;
       assets.forEach(a=>{ const s = statusFor(a,t); if(s.cls==='status-danger') overdue++; else if(s.cls==='status-warn-30') dueSoon++; });
       return [
@@ -2191,8 +2301,8 @@ route('/checklist/:group', params=>renderChecklistPage(decodeURIComponent(params
    ============================================================ */
 route('/reminders', ()=>{
   const rows = [];
-  STATE.templates.forEach(t=>{
-    STATE.assets.filter(a=>a.templateId===t.id).forEach(a=>{
+  visibleTemplates().forEach(t=>{
+    visibleAssets(t.id).forEach(a=>{
       const s = statusFor(a,t);
       if(s.cls!=='status-ok') rows.push({t,a,s});
     });
@@ -2232,7 +2342,7 @@ route('/sync', ()=>{
   const account = msalInstance ? (msalInstance.getActiveAccount() || msalInstance.getAllAccounts()[0]) : null;
   const backendStatus = msalInstance
     ? (connected
-        ? `Connected to OneDrive as ${account.username}. State backups and PDFs sync to the "${CONFIG.MS_GRAPH.FOLDER}" folder in this account's OneDrive.`
+        ? `Connected to OneDrive as ${account.username}. The shared dataset syncs to the "${CONFIG.MS_GRAPH.FOLDER}" folder, and your own PDFs plus a personal backup copy save under "${CONFIG.MS_GRAPH.FOLDER}/Users/${userFolderName()}".`
         : 'Not connected to OneDrive yet — click "Connect OneDrive" below and sign in with a Microsoft account.')
     : (CONFIG.GAS_URL ? 'Syncing to Google Apps Script: ' + CONFIG.GAS_URL : 'Offline mode — data lives in this browser\'s localStorage only.');
 
@@ -2347,7 +2457,7 @@ async function generateAndStoreTcPdf(req){
   if(msalInstance && isOneDriveConnected()){
     try{
       req.oneDriveUrl = await uploadBytesToOneDrive(
-        `${CONFIG.MS_GRAPH.FOLDER}/Temp Connections/${pdfFileName}`,
+        `${CONFIG.MS_GRAPH.FOLDER}/Users/${userFolderName()}/Temp Connections/${pdfFileName}`,
         dataUriToBytes(pdfDataUri), 'application/pdf'
       );
       toast('Connection issued — PDF saved to OneDrive.');
@@ -2363,6 +2473,7 @@ async function generateAndStoreTcPdf(req){
 
 /* ---- Page: New Request (#/temp-connection) ---- */
 route('/temp-connection', ()=>{
+  if(!hasTcAccess()){ toast('You do not have access to Temporary Electrical Connection.'); navigate('/'); return; }
   const locInput = el('input', {placeholder:'e.g. Unit-3 Boiler platform, Bay 4'});
   const fromInput = el('input', {type:'date'});
   const toInput = el('input', {type:'date'});
@@ -2542,6 +2653,7 @@ route('/temp-connection', ()=>{
 
 /* ---- Page: Approver list (#/temp-connection/approve) ---- */
 route('/temp-connection/approve', ()=>{
+  if(!hasTcAccess()){ toast('You do not have access to Temporary Electrical Connection.'); navigate('/'); return; }
   if(!hasRole('user')){ toast('You need User access to review requests.'); navigate('/temp-connection/register'); return; }
   const pending = STATE.tempConnections.filter(r=>r.status==='Pending').sort((a,b)=> new Date(a.submittedAt)-new Date(b.submittedAt));
   const dueForRemoval = STATE.tempConnections.filter(r=>tcIsOverdue(r)).sort((a,b)=> new Date(a.periodTo)-new Date(b.periodTo));
@@ -2624,6 +2736,7 @@ route('/temp-connection/approve', ()=>{
 
 /* ---- Page: Approver detail / decision (#/temp-connection/approve/:id) ---- */
 route('/temp-connection/approve/:id', ({params})=>{
+  if(!hasTcAccess()){ toast('You do not have access to Temporary Electrical Connection.'); navigate('/'); return; }
   if(!hasRole('user')){ toast('You need User access to review requests.'); navigate('/temp-connection/register'); return; }
   const req = STATE.tempConnections.find(r=>r.id===params.id);
   if(!req){ toast('That request could not be found — it may have been resolved or removed already.'); navigate('/temp-connection/approve'); return; }
@@ -2741,6 +2854,7 @@ route('/temp-connection/approve/:id', ({params})=>{
 
 /* ---- Page: Register (#/temp-connection/register) ---- */
 route('/temp-connection/register', ()=>{
+  if(!hasTcAccess()){ toast('You do not have access to Temporary Electrical Connection.'); navigate('/'); return; }
   const search = el('input', {placeholder:'Search location or applicant…', style:'width:280px;'});
   const statusFilter = el('select', {style:'width:200px;'}, [
     el('option',{value:''},['All statuses']), el('option',{value:'Pending for approval'},['Pending for approval']),
@@ -3055,6 +3169,157 @@ function deleteTemplate(id){
 }
 
 /* ============================================================
+   PAGE: USER MANAGER  (#/users)  — admin-only.
+   Lets the admin create/edit/delete accounts, set each account's role,
+   choose which checklists it can see, and whether it can use the
+   Temporary Electrical Connection module.
+   ============================================================ */
+route('/users', ()=>{
+  if(!hasRole('admin')){ toast('User management is admin-only.'); navigate('/checklist'); return; }
+  const rows = getUsers().map(u=>{
+    const assignedCount = u.role==='admin' ? STATE.templates.length : (u.assignedTemplateIds||[]).length;
+    return [
+      el('span', {class:'font-medium'}, [u.username]),
+      u.label || '—',
+      el('span', {class:'role-chip role-'+u.role}, [u.role]),
+      u.role==='admin' ? 'All (admin)' : (assignedCount + ' of ' + STATE.templates.length),
+      u.role==='admin' ? 'Yes (admin)' : (u.tcAccess ? 'Yes' : 'No'),
+      el('div', {class:'flex gap-2 justify-end flex-wrap'}, [
+        el('button', {class:'btn btn-ghost', onclick:()=>openUserForm(u)}, ['Edit']),
+        el('button', {class:'btn btn-danger', onclick:()=>deleteUser(u.id)}, ['Delete'])
+      ])
+    ];
+  });
+  const tbl = gridTable(
+    [
+      {label:'Username', width:'16%'},
+      {label:'Name', width:'18%'},
+      {label:'Role', width:'12%'},
+      {label:'Checklists', width:'18%'},
+      {label:'TC Access', width:'12%'},
+      {label:'', width:'24%', align:'right'}
+    ],
+    rows
+  );
+  shell(el('div', {}, [
+    pageHeader('Users', 'Manage who can sign in, what role they have, which checklists they can see, and whether they can use Temporary Electrical Connection.', [
+      el('button', {class:'btn btn-primary', onclick:()=>openUserForm(null)}, ['+ New User'])
+    ]),
+    el('div', {class:'card overflow-x-auto'}, [tbl])
+  ]));
+});
+
+function deleteUser(id){
+  const target = getUsers().find(u=>u.id===id);
+  if(!target) return;
+  const admins = getUsers().filter(u=>u.role==='admin');
+  if(target.role==='admin' && admins.length<=1){ toast('You cannot delete the last remaining admin account.'); return; }
+  const me = currentUser();
+  if(me && me.id===id){ toast('You cannot delete the account you are currently signed in as.'); return; }
+  if(!confirm('Delete user "'+target.username+'"? This cannot be undone.')) return;
+  STATE.users = STATE.users.filter(u=>u.id!==id);
+  saveState(); render();
+  toast('User deleted.');
+}
+
+// Add/edit modal for a single user account, including per-checklist
+// assignment checkboxes and the Temporary Electrical Connection toggle.
+function openUserForm(existing){
+  const isNew = !existing;
+  const bg = el('div', {class:'modal-bg'});
+
+  const usernameInput = el('input', {value: existing ? existing.username : '', placeholder:'e.g. jsharma'});
+  const labelInput = el('input', {value: existing ? (existing.label||'') : '', placeholder:'Display name'});
+  const passwordInput = el('input', {value: existing ? existing.password : '', placeholder:'Password'});
+  const roleSelect = el('select', {}, ['viewer','user','admin'].map(r=>
+    el('option', {value:r, ...((existing?existing.role:'user')===r?{selected:'selected'}:{})}, [r])
+  ));
+  const tcCheckbox = el('input', {type:'checkbox', ...(existing ? (existing.tcAccess?{checked:'checked'}:{}) : {checked:'checked'})});
+
+  const assignedSet = new Set(existing ? (existing.assignedTemplateIds||[]) : allTemplateIds());
+  const templateChecks = STATE.templates.map(t=>{
+    const cb = el('input', {type:'checkbox', 'data-tid':t.id, style:'width:16px; height:16px; margin:0; grid-column:1;', ...(assignedSet.has(t.id)?{checked:'checked'}:{})});
+    return el('label', {style:'display:grid; grid-template-columns:20px 1fr; column-gap:.6rem; align-items:start; text-align:left; font-size:.875rem; padding:.4rem 0; cursor:pointer; width:100%;'}, [
+      cb,
+      el('span', {style:'text-align:left; grid-column:2; line-height:1.3; word-break:break-word;'}, [t.name])
+    ]);
+  });
+  const templateCheckInputs = templateChecks.map(l=>l.firstChild);
+
+  const selectAllBtn = el('button', {type:'button', class:'btn btn-ghost', style:'padding:.25rem .6rem;', onclick:()=>{
+    templateCheckInputs.forEach(cb=> cb.checked = true);
+  }}, ['Select all']);
+  const selectNoneBtn = el('button', {type:'button', class:'btn btn-ghost', style:'padding:.25rem .6rem;', onclick:()=>{
+    templateCheckInputs.forEach(cb=> cb.checked = false);
+  }}, ['Select none']);
+
+  const checklistSection = el('div', {}, [
+    el('div', {class:'flex items-center justify-between mb-1'}, [
+      el('label', {class:'field-label', style:'margin-bottom:0;'}, ['Assigned checklists']),
+      el('div', {class:'flex gap-1'}, [selectAllBtn, selectNoneBtn])
+    ]),
+    el('div', {class:'card p-3', style:'max-height:220px; overflow-y:auto; overflow-x:hidden; width:100%; box-sizing:border-box;'}, templateChecks.length ? templateChecks : [el('p', {class:'text-sm text-slate-400'}, ['No checklists exist yet.'])])
+  ]);
+
+  function refreshAdminHint(){
+    const isAdmin = roleSelect.value === 'admin';
+    checklistSection.style.opacity = isAdmin ? '.5' : '1';
+    tcSection.style.opacity = isAdmin ? '.5' : '1';
+  }
+
+  tcCheckbox.setAttribute('style', 'width:16px; height:16px; margin:0; grid-column:1;');
+  const tcSection = el('div', {}, [
+    el('label', {style:'display:grid; grid-template-columns:20px 1fr; column-gap:.6rem; align-items:start; text-align:left; font-size:.875rem; cursor:pointer; width:100%;'}, [
+      tcCheckbox,
+      el('span', {style:'text-align:left; grid-column:2; line-height:1.3;'}, ['Can access Temporary Electrical Connection'])
+    ])
+  ]);
+
+  roleSelect.addEventListener('change', refreshAdminHint);
+
+  const box = el('div', {class:'modal-box p-6', style:'max-width:560px;'}, [
+    el('h3', {class:'font-head text-lg font-bold mb-4'}, [isNew ? 'New user' : 'Edit user — ' + existing.username]),
+    el('div', {class:'space-y-3'}, [
+      labeled('Username', usernameInput),
+      labeled('Display name', labelInput),
+      labeled('Password', passwordInput),
+      labeled('Role', roleSelect),
+      el('p', {class:'text-xs text-slate-400', style:'margin-top:-.5rem;'}, ['Admin always has every checklist and Temp Connection access, regardless of the settings below.']),
+      checklistSection,
+      tcSection
+    ]),
+    el('div', {class:'flex justify-end gap-2 mt-5'}, [
+      el('button', {class:'btn btn-ghost', onclick:()=>bg.remove()}, ['Cancel']),
+      el('button', {class:'btn btn-primary', onclick:()=>{
+        const username = usernameInput.value.trim();
+        const password = passwordInput.value;
+        if(!username || !password){ toast('Username and password are required.'); return; }
+        const clash = getUsers().find(u=> u.username.toLowerCase()===username.toLowerCase() && (!existing || u.id!==existing.id));
+        if(clash){ toast('That username is already taken.'); return; }
+        const role = roleSelect.value;
+        if(existing && existing.role==='admin' && role!=='admin'){
+          const admins = getUsers().filter(u=>u.role==='admin');
+          if(admins.length<=1){ toast('You cannot demote the last remaining admin account.'); return; }
+        }
+        const assignedTemplateIds = templateCheckInputs.filter(cb=>cb.checked).map(cb=>cb.getAttribute('data-tid'));
+        const tcAccess = tcCheckbox.checked;
+        if(existing){
+          existing.username = username; existing.label = labelInput.value.trim();
+          existing.password = password; existing.role = role;
+          existing.assignedTemplateIds = assignedTemplateIds; existing.tcAccess = tcAccess;
+        } else {
+          STATE.users.push({ id: uid('u'), username, label: labelInput.value.trim(), password, role, assignedTemplateIds, tcAccess });
+        }
+        saveState(); bg.remove(); render();
+        toast(isNew ? 'User created.' : 'User updated.');
+      }}, [isNew ? 'Create user' : 'Save'])
+    ])
+  ]);
+  refreshAdminHint();
+  bg.appendChild(box); document.body.appendChild(bg);
+}
+
+/* ============================================================
    PAGE: TEMPLATE BUILDER  (#/templates/:id/builder)
    ============================================================ */
 route('/templates/:id/builder', ({params})=>{
@@ -3199,12 +3464,25 @@ function labeled(label, input){ return el('div', {}, [el('label', {class:'field-
 route('/assets/:templateId', ({params})=>{
   const t = STATE.templates.find(x=>x.id===params.templateId);
   if(!t){ navigate('/templates'); return; }
+  if(!hasTemplateAccess(t.id)){ toast('You do not have access to this checklist.'); navigate('/checklist'); return; }
+  const isAdmin = hasRole('admin');
   const search = el('input', {placeholder:'Search…', style:'width:320px; flex-shrink:0;'});
+  // Admin-only "sort/filter by user" control — lets admin narrow the list down
+  // to just one contributor's entries for this checklist, since normally every
+  // user's entries are mixed together in admin's view.
+  const contributorUsernames = Array.from(new Set(
+    STATE.assets.filter(a=>a.templateId===t.id && a.createdBy).map(a=>a.createdBy)
+  )).sort();
+  const userFilter = isAdmin ? el('select', {style:'flex-shrink:0;'}, [
+    el('option', {value:''}, ['All users']),
+    ...contributorUsernames.map(un=> el('option', {value:un}, [un]))
+  ]) : null;
   const tableWrap = el('div');
   function inspCount(assetId){ return STATE.inspections.filter(i=>i.assetId===assetId).length; }
   function renderTable(filterText){
     clear(tableWrap);
-    const assets = STATE.assets.filter(a=>a.templateId===t.id).filter(a=>{
+    const assets = visibleAssets(t.id).filter(a=>{
+      if(userFilter && userFilter.value && a.createdBy!==userFilter.value) return false;
       if(!filterText) return true;
       return JSON.stringify(a.fieldValues).toLowerCase().includes(filterText.toLowerCase());
     });
@@ -3219,7 +3497,8 @@ route('/assets/:templateId', ({params})=>{
       }})),
       {label:'Status', width:'150px', sort:a=> statusFor(a, t).daysLeft},
       {label:'Inspections', width:'120px', sort:a=> inspCount(a.id)},
-      {label:'Actions', width:'300px', align:'right'}
+      ...(isAdmin ? [{label:'Created By', width:'140px', sort:a=> (a.createdBy||'').toLowerCase()}] : []),
+      {label:'Actions', width:'360px', align:'right'}
     ];
     const rowBuilder = a=>{
       const s = statusFor(a, t);
@@ -3231,10 +3510,11 @@ route('/assets/:templateId', ({params})=>{
         ),
         pill(s),
         el('span', {class:'badge-count'}, [n + (n===1?' record':' records')]),
-        el('div', {class:'flex gap-2 justify-end flex-wrap'}, [
-          hasRole('user') ? el('button', {class:'btn btn-primary', onclick:()=>requireRole('user', ()=>openInspectionModal(t,a))}, ['+ Inspect']) : null,
-          el('a', {href:'#/assets/'+t.id+'/'+a.id, class:'btn btn-ghost'}, ['History']),
-          hasRole('user') ? el('button', {class:'btn btn-danger', onclick:()=>requireRole('user', ()=>deleteAsset(t,a))}, ['Delete']) : null
+        ...(isAdmin ? [a.createdBy || '—'] : []),
+        el('div', {class:'flex gap-2 justify-end', style:'flex-wrap:nowrap; white-space:nowrap;'}, [
+          hasRole('user') ? el('button', {class:'btn btn-primary', style:'white-space:nowrap;', onclick:()=>requireRole('user', ()=>openInspectionModal(t,a))}, ['+ Inspect']) : null,
+          el('a', {href:'#/assets/'+t.id+'/'+a.id, class:'btn btn-ghost', style:'white-space:nowrap;'}, ['History']),
+          hasRole('user') ? el('button', {class:'btn btn-danger', style:'white-space:nowrap;', onclick:()=>requireRole('user', ()=>deleteAsset(t,a))}, ['Delete']) : null
         ])
       ];
     };
@@ -3243,9 +3523,10 @@ route('/assets/:templateId', ({params})=>{
     renderSortableTable(innerWrap, columns, assets, rowBuilder);
   }
   search.addEventListener('input', ()=>renderTable(search.value));
+  if(userFilter) userFilter.addEventListener('change', ()=>renderTable(search.value));
   renderTable('');
 
-  const count = STATE.assets.filter(a=>a.templateId===t.id).length;
+  const count = visibleAssets(t.id).length;
   shell(el('div', {}, [
     el('div', {class:'mb-4'}, [
       el('a', {href:'#/checklist', class:'btn btn-ghost'}, ['← Back'])
@@ -3257,6 +3538,7 @@ route('/assets/:templateId', ({params})=>{
       ]),
       el('div', {class:'flex items-center gap-2 flex-nowrap'}, [
         search,
+        userFilter,
         hasRole('user') ? el('button', {class:'btn btn-success whitespace-nowrap', onclick:()=>requireRole('user', ()=>openAssetForm(t))}, ['+ Add Asset']) : null
       ])
     ]),
@@ -3300,7 +3582,7 @@ function openAssetForm(t, existing){
         const missing = t.assetFields.filter(f=>f.required && !fv[f.key]);
         if(missing.length){ toast('Please fill: ' + missing.map(f=>f.label).join(', ')); return; }
         if(existing){ existing.fieldValues = fv; }
-        else { STATE.assets.push({ id: uid('a'), templateId: t.id, createdOn: new Date().toISOString(), fieldValues: fv }); }
+        else { STATE.assets.push({ id: uid('a'), templateId: t.id, createdOn: new Date().toISOString(), createdBy: (currentUser()||{}).username, fieldValues: fv }); }
         saveState(); bg.remove(); render();
         toast(existing ? 'Asset updated.' : 'Asset added.');
       }}, [existing ? 'Save' : 'Add asset'])
@@ -3316,6 +3598,8 @@ route('/assets/:templateId/:assetId', ({params})=>{
   const t = STATE.templates.find(x=>x.id===params.templateId);
   const a = STATE.assets.find(x=>x.id===params.assetId);
   if(!t || !a){ navigate('/templates'); return; }
+  if(!hasTemplateAccess(t.id)){ toast('You do not have access to this checklist.'); navigate('/checklist'); return; }
+  if(!canSeeAsset(a)){ toast('You do not have access to this asset.'); navigate('/checklist'); return; }
   const s = statusFor(a, t);
   const history = STATE.inspections.filter(i=>i.assetId===a.id).sort((x,y)=> new Date(y.date)-new Date(x.date));
 
@@ -3590,7 +3874,7 @@ function openInspectionModal(t, a){
       if(msalInstance && isOneDriveConnected()){
         try{
           insp.oneDriveUrl = await uploadBytesToOneDrive(
-            `${CONFIG.MS_GRAPH.FOLDER}/${t.name}/${pdfFileName}`,
+            `${CONFIG.MS_GRAPH.FOLDER}/Users/${userFolderName()}/${t.name}/${pdfFileName}`,
             dataUriToBytes(pdfDataUri),
             'application/pdf'
           );
@@ -3709,6 +3993,8 @@ route('/inspect/:assetId', ({params})=>{
   const a = STATE.assets.find(x=>x.id===params.assetId);
   if(!a){ navigate('/templates'); return; }
   const t = STATE.templates.find(x=>x.id===a.templateId);
+  if(!hasTemplateAccess(t.id)){ toast('You do not have access to this checklist.'); navigate('/checklist'); return; }
+  if(!canSeeAsset(a)){ toast('You do not have access to this asset.'); navigate('/checklist'); return; }
   navigate('/assets/'+t.id+'/'+a.id);
   setTimeout(()=>openInspectionModal(t,a), 0);
 });
